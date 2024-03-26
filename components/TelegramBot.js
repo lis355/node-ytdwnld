@@ -1,4 +1,7 @@
+import { EOL } from "node:os";
+
 import { Telegraf, Input } from "telegraf";
+import moment from "moment";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
 import AsyncQueue from "../tools/AsyncQueue.js";
@@ -58,19 +61,25 @@ export default class TelegramBot extends ApplicationComponent {
 			if (!id) throw new Error("Некорректая ссылка или ID");
 
 			const info = await youTubeDownloader.getInfo(id);
-			const videoInfoString = `${info.videoDetails.author.user} ${info.videoDetails.title}`;
+
+			if (info.videoDetails.duration.asMinutes() > 45) throw new Error("Видео больше 45 минут временно не поддерживаются");
+
+			const captionLines = [
+				`${info.videoDetails.author.user} ${info.videoDetails.title}`
+			];
+
+			if (info.videoDetails.chapters &&
+				info.videoDetails.chapters.length > 0) captionLines.push("", ...info.videoDetails.chapters.map((chapter, index) => `${index + 1}. ${chapter.title} (${moment.utc(chapter.startTime.asMilliseconds()).format("H:mm:ss")})`));
+
+			const caption = captionLines.join(EOL);
+
+			this.sendMessageWithAutodelete(chatId, `Загрузка видео: ${info.videoDetails.title}`);
 
 			const deleteMessageStartLoading = await this.sendMessage(chatId, `Загрузка видео: ${info.videoDetails.title}`);
 
 			const buffer = await youTubeDownloader.downloadYouTubeAudioFromVideo(info);
 
-			await this.bot.telegram.sendAudio(
-				chatId,
-				Input.fromBuffer(buffer, `${info.videoDetails.title}.mp3`),
-				{
-					caption: videoInfoString
-				}
-			);
+			await this.bot.telegram.sendAudio(chatId, Input.fromBuffer(buffer, `${info.videoDetails.title}.mp3`), { caption });
 
 			await deleteMessageStartLoading();
 		} catch (error) {

@@ -1,6 +1,7 @@
 import { PassThrough } from "node:stream";
+import { spawn } from "node:child_process";
 
-import ffmpeg from "fluent-ffmpeg";
+import moment from "moment";
 import ytdl from "ytdl-core";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
@@ -25,7 +26,6 @@ export default class YouTubeDownloader extends ApplicationComponent {
 		await super.initialize();
 
 		if (!process.env.FFMPEG_PATH) throw new Error("FFMPEG_PATH not set");
-		if (!process.env.FFPROBE_PATH) throw new Error("FFPROBE_PATH not set");
 		// if (!process.env.YTDL_COOKIE) throw new Error("YTDL_COOKIE not set");
 	}
 
@@ -44,30 +44,44 @@ export default class YouTubeDownloader extends ApplicationComponent {
 	}
 
 	async getInfo(youTubeId) {
-		return ytdl.getInfo(youTubeId, {
+		const info = await ytdl.getInfo(youTubeId, {
 			requestOptions: {
 				headers: {
 					// cookie: process.env.YTDL_COOKIE
 				}
 			}
 		});
+
+		info.videoDetails.duration = moment.duration(info.videoDetails.lengthSeconds, "seconds");
+
+		if (info.videoDetails.chapters) {
+			info.videoDetails.chapters.forEach(chapter => {
+				chapter.startTime = moment.duration(chapter.start_time, "seconds");
+			});
+		}
+
+		return info;
 	}
 
 	async downloadYouTubeAudioFromVideo(info) {
 		return new Promise(async (resolve, reject) => {
 			const video = ytdl.downloadFromInfo(info, { filter: "audioonly" });
 
-			video
-				.on("error", reject);
+			video.on("error", reject);
 
 			const bufferStream = new PassThrough();
 
-			ffmpeg(video)
-				.audioBitrate(192)
-				.format("mp3")
-				.on("error", reject)
-				.output(bufferStream, { end: true })
-				.run();
+			const child = spawn(`"${process.env.FFMPEG_PATH}" -v quiet -i pipe:0 -b:a 128k -f mp3 pipe:1`, { shell: true });
+
+			child.stderr.on("data", data => {
+				const line = data.toString();
+
+				console.error(line);
+			});
+
+			child.stdout.pipe(bufferStream);
+
+			video.pipe(child.stdin);
 
 			const buffer = await streamToBuffer(bufferStream);
 
