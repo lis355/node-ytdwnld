@@ -1,4 +1,4 @@
-import { Telegraf } from "telegraf";
+import { Telegraf, Input } from "telegraf";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
 import AsyncQueue from "../tools/AsyncQueue.js";
@@ -20,6 +20,7 @@ export default class TelegramBot extends ApplicationComponent {
 		this.bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
 		this.bot
+			.command("start", async ctx => this.sendMessage(ctx.chat.id, "Скопируйте ссылку на видео"))
 			.on("message", async ctx => this.asyncQueue.push(async () => this.processTextMessage(ctx)))
 			.catch((error, ctx) => {
 				console.error(error);
@@ -54,20 +55,26 @@ export default class TelegramBot extends ApplicationComponent {
 			const { youTubeDownloader } = this.application;
 
 			const id = youTubeDownloader.parseYouTubeId(text);
-			if (!id) await this.sendMessageWithAutodelete(chatId, "Некорректая ссылка или ID");
+			if (!id) throw new Error("Некорректая ссылка или ID");
 
 			const info = await youTubeDownloader.getInfo(id);
 			const videoInfoString = `${info.videoDetails.author.user} ${info.videoDetails.title}`;
+
+			const deleteMessageStartLoading = await this.sendMessage(chatId, `Загрузка видео: ${info.videoDetails.title}`);
+
 			const buffer = await youTubeDownloader.downloadYouTubeAudioFromVideo(info);
 
-			await this.bot.telegram.sendDocument(chatId, {
-				source: buffer,
-				filename: `${info.videoDetails.title}.mp3`
-			}, {
-				caption: videoInfoString
-			});
+			await this.bot.telegram.sendAudio(
+				chatId,
+				Input.fromBuffer(buffer, `${info.videoDetails.title}.mp3`),
+				{
+					caption: videoInfoString
+				}
+			);
+
+			await deleteMessageStartLoading();
 		} catch (error) {
-			await this.sendMessageWithAutodelete(chatId, `Ошибка: ${error.message}`);
+			await this.sendMessage(chatId, `Ошибка: ${error.message}`);
 		}
 	}
 };
