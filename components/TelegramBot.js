@@ -73,8 +73,6 @@ export default class TelegramBot extends ApplicationComponent {
 
 			const caption = captionLines.join(EOL);
 
-			this.sendMessageWithAutodelete(chatId, `Загрузка видео: ${info.videoDetails.title}`);
-
 			const deleteMessageStartLoading = await this.sendMessage(chatId, `Загрузка видео: ${info.videoDetails.title}`);
 
 			const buffer = await youTubeDownloader.downloadYouTubeAudioFromVideo(info);
