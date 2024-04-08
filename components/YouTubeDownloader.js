@@ -1,7 +1,10 @@
 import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
 
+import _ from "lodash";
+import { decode } from "html-entities";
 import moment from "moment";
+import xml2js from "xml2js";
 import ytdl from "ytdl-core";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
@@ -87,5 +90,23 @@ export default class YouTubeDownloader extends ApplicationComponent {
 
 			return resolve(buffer);
 		});
+	}
+
+	async downloadYouTubeSubtitlesFromVideo(info) {
+		const subtitlesUrl = _.get(info, "player_response.captions.playerCaptionsTracklistRenderer.captionTracks.0.baseUrl");
+		if (!subtitlesUrl) return null;
+
+		const xmlSubtitles = await new Promise(async (resolve, reject) => {
+			fetch(subtitlesUrl)
+				.then(response => response.text())
+				.then(resolve)
+				.catch(reject);
+		});
+
+		const subtitles = await xml2js.parseStringPromise(xmlSubtitles);
+		const rawText = subtitles.transcript.text.map(item => item._).join(" ");
+		const text = decode(rawText);
+
+		return text;
 	}
 }
