@@ -1,9 +1,11 @@
 import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 import _ from "lodash";
 import { decode } from "html-entities";
 import moment from "moment";
+import sider from "@lis355/sider";
 import xml2js from "xml2js";
 import ytdl from "ytdl-core";
 
@@ -28,8 +30,49 @@ export default class YouTubeDownloader extends ApplicationComponent {
 	async initialize() {
 		await super.initialize();
 
+		if (!process.env.CHROME_PATH) throw new Error("CHROME_PATH not set");
 		if (!process.env.FFMPEG_PATH) throw new Error("FFMPEG_PATH not set");
-		// if (!process.env.YTDL_COOKIE) throw new Error("YTDL_COOKIE not set");
+
+		await this.initializeBrowser();
+	}
+
+	async initializeBrowser() {
+		const args = new sider.CLIArguments();
+
+		args.parseArrayArguments([
+			"--start-maximized",
+			"--restore-last-session"
+		]);
+
+		args.set("--user-data-dir", path.resolve(process.cwd(), "browserSession"));
+
+		this.browser = new sider.Browser();
+
+		this.browser.on("closed", () => {
+			process.exit();
+		})
+
+		await this.browser.launch({
+			executablePath: process.env.CHROME_PATH,
+			args
+		});
+
+		await this.browser.initialize();
+
+		this.page = await new Promise(resolve => {
+			this.browser.once("pageAdded", page => {
+				// page.network.responseHandler = params => {
+				// 	const url = new URL(params.request.url);
+				// 	console.log(url.href);
+				// };
+
+				return resolve(page);
+			});
+		});
+
+		const url = "https://www.youtube.com/";
+		await this.page.navigate(url);
+		await this.page.waitForNavigation(url);
 	}
 
 	parseYouTubeId(text) {
@@ -47,10 +90,12 @@ export default class YouTubeDownloader extends ApplicationComponent {
 	}
 
 	async getInfo(youTubeId) {
+		await this.navigateBrowserAndUpdateCookies(youTubeId);
+
 		const info = await ytdl.getInfo(youTubeId, {
 			requestOptions: {
 				headers: {
-					// cookie: process.env.YTDL_COOKIE
+					cookie: this.cookiesString
 				}
 			}
 		});
@@ -64,6 +109,15 @@ export default class YouTubeDownloader extends ApplicationComponent {
 		}
 
 		return info;
+	}
+
+	async navigateBrowserAndUpdateCookies(youTubeId) {
+		const url = `https://www.youtube.com/watch?v=${youTubeId}`
+		await this.page.navigate(url);
+		await this.page.waitForNavigation(url);
+
+		const { cookies } = await this.page.cdp.send("Network.getCookies");
+		this.cookiesString = cookies.map(cookie => `${cookie.name}: ${cookie.value}`).join(", ");
 	}
 
 	async downloadYouTubeAudioFromVideo(info) {

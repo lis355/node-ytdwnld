@@ -2,6 +2,7 @@ yarn.lock
 package-lock.json
 node_modules/
 
+browserSession/
 daemon/
 
 .env.*
