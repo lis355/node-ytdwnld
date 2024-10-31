@@ -26,6 +26,8 @@ async function streamToBuffer(readableStream) {
 	});
 }
 
+const YOUTUBE_ID_TOKEN_HEADER = "x-youtube-identity-token";
+
 export default class YouTubeDownloader extends ApplicationComponent {
 	async initialize() {
 		await super.initialize();
@@ -37,6 +39,7 @@ export default class YouTubeDownloader extends ApplicationComponent {
 	}
 
 	async initializeBrowser() {
+
 		const args = new sider.CLIArguments();
 
 		args.parseArrayArguments([
@@ -50,21 +53,29 @@ export default class YouTubeDownloader extends ApplicationComponent {
 
 		this.browser.on("closed", () => {
 			process.exit();
-		})
+		});
 
-		await this.browser.launch({
+		const options = {
 			executablePath: process.env.CHROME_PATH,
 			args
-		});
+		};
+
+		await this.browser.launch(options);
+
+		console.warn("Чтобы залогиниться на Ютубе (в гугле), нужно открыть сначала браузер самому без аргумента --remote-debugging-port, иначе гугл детектит автоматизацию и не дает загрузиться");
+		console.log(`${options.executablePath} ${options.args.toArray().join(" ")}`);
 
 		await this.browser.initialize();
 
 		this.page = await new Promise(resolve => {
 			this.browser.once("pageAdded", page => {
-				// page.network.responseHandler = params => {
-				// 	const url = new URL(params.request.url);
-				// 	console.log(url.href);
-				// };
+				page.network.requestHandler = params => {
+					if (params.request.url.includes("youtube.com")) {
+						Object.keys(params.request.headers).forEach(name => {
+							if (name.toLowerCase() === YOUTUBE_ID_TOKEN_HEADER) this.idTokenHeader = params.request.headers[name];
+						});
+					}
+				};
 
 				return resolve(page);
 			});
@@ -73,6 +84,10 @@ export default class YouTubeDownloader extends ApplicationComponent {
 		const url = "https://www.youtube.com/";
 		await this.page.navigate(url);
 		await this.page.waitForNavigation(url);
+	}
+
+	async run() {
+		await super.run();
 	}
 
 	parseYouTubeId(text) {
@@ -95,7 +110,8 @@ export default class YouTubeDownloader extends ApplicationComponent {
 		const info = await ytdl.getInfo(youTubeId, {
 			requestOptions: {
 				headers: {
-					cookie: this.cookiesString
+					cookie: this.cookiesString,
+					YOUTUBE_ID_TOKEN_HEADER: this.idTokenHeader
 				}
 			}
 		});
@@ -112,12 +128,12 @@ export default class YouTubeDownloader extends ApplicationComponent {
 	}
 
 	async navigateBrowserAndUpdateCookies(youTubeId) {
-		const url = `https://www.youtube.com/watch?v=${youTubeId}`
+		const url = `https://www.youtube.com/watch?v=${youTubeId}`;
 		await this.page.navigate(url);
 		await this.page.waitForNavigation(url);
 
 		const { cookies } = await this.page.cdp.send("Network.getCookies");
-		this.cookiesString = cookies.map(cookie => `${cookie.name}: ${cookie.value}`).join(", ");
+		this.cookiesString = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join("; ");
 	}
 
 	async downloadYouTubeAudioFromVideo(info) {
