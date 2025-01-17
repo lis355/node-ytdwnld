@@ -4,12 +4,17 @@ import path from "node:path";
 
 import _ from "lodash";
 import { decode } from "html-entities";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import moment from "moment";
 import sider from "@lis355/sider";
 import xml2js from "xml2js";
 import ytdl from "ytdl-core";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
+
+async function delay(ms) {
+	return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function streamToBuffer(readableStream) {
 	return new Promise((resolve, reject) => {
@@ -39,6 +44,16 @@ export default class YouTubeDownloader extends ApplicationComponent {
 	}
 
 	async initializeBrowser() {
+		if (!process.env.PROXY) throw new Error("PROXY not set");
+		this.proxyUrl = new URL(process.env.PROXY);
+		if (this.proxyUrl.protocol.toLowerCase() !== "http:" ||
+			!this.proxyUrl.password ||
+			!this.proxyUrl.username) throw new Error("Bad proxy");
+		this.proxyUrlWithoutAuth = new URL(this.proxyUrl.href);
+		this.proxyUrlWithoutAuth.username = "";
+		this.proxyUrlWithoutAuth.password = "";
+
+		this.proxyAgent = new HttpsProxyAgent(this.proxyUrl.href);
 
 		const args = new sider.CLIArguments();
 
@@ -47,7 +62,9 @@ export default class YouTubeDownloader extends ApplicationComponent {
 			"--restore-last-session"
 		]);
 
-		args.set("--user-data-dir", path.resolve(process.cwd(), "browserSession"));
+		args.set("--user-data-dir", path.resolve(process.cwd(), "browserSession").replaceAll(/\\/g, "/"));
+
+		args.set("--proxy-server", this.proxyUrlWithoutAuth.href.replace(/\/?$/, ""));
 
 		this.browser = new sider.Browser();
 
@@ -60,19 +77,30 @@ export default class YouTubeDownloader extends ApplicationComponent {
 			args
 		};
 
-		await this.browser.launch(options);
-
 		console.warn("Чтобы залогиниться на Ютубе (в гугле), нужно открыть сначала браузер самому без аргумента --remote-debugging-port, иначе гугл детектит автоматизацию и не дает загрузиться");
-		console.log(`${options.executablePath} ${options.args.toArray().join(" ")}`);
+		const optionsArgsString = options.args.toArray().join(" ").replace(/--remote-debugging-port=\d*/, "").trim();
+		console.log(`Command: "${options.executablePath}" ${optionsArgsString}`);
+		console.log(`Proxy username: ${this.proxyUrl.username}, password: ${this.proxyUrl.password}`);
 
+		await this.browser.launch(options);
 		await this.browser.initialize();
 
 		this.page = await new Promise(resolve => {
 			this.browser.once("pageAdded", page => {
+				page.network.credentials = {
+					username: this.proxyUrl.username,
+					password: this.proxyUrl.password
+				};
+
 				page.network.requestHandler = params => {
-					if (params.request.url.includes("youtube.com")) {
+					if (params.request.url.toLowerCase().includes("youtube.com")) {
 						Object.keys(params.request.headers).forEach(name => {
-							if (name.toLowerCase() === YOUTUBE_ID_TOKEN_HEADER) this.idTokenHeader = params.request.headers[name];
+							if (name.toLowerCase() === YOUTUBE_ID_TOKEN_HEADER) {
+								const idTokenHeader = params.request.headers[name];
+								if (!this.idTokenHeader) console.log(`YOUTUBE_ID_TOKEN captured: ${idTokenHeader}`);
+
+								this.idTokenHeader = idTokenHeader;
+							}
 						});
 					}
 				};
@@ -84,6 +112,12 @@ export default class YouTubeDownloader extends ApplicationComponent {
 		const url = "https://www.youtube.com/";
 		await this.page.navigate(url);
 		await this.page.waitForNavigation(url);
+
+		while (!this.idTokenHeader) {
+			console.log("Waiting for YOUTUBE_ID_TOKEN...");
+
+			await delay(5000);
+		}
 	}
 
 	async run() {
@@ -112,7 +146,8 @@ export default class YouTubeDownloader extends ApplicationComponent {
 				headers: {
 					cookie: this.cookiesString,
 					YOUTUBE_ID_TOKEN_HEADER: this.idTokenHeader
-				}
+				},
+				agent: this.proxyAgent
 			}
 		});
 
