@@ -1,5 +1,5 @@
 import TelegramBot from "../TelegramBot.js";
-import YouTubeDownloader from "../YouTubeDownloader.js";
+import YouTubeDownloader from "../downloaders/InnertubeYouTubeDownloader.js";
 
 export default class Application {
 	constructor() {

@@ -10,7 +10,7 @@ import sider from "@lis355/sider";
 import xml2js from "xml2js";
 import ytdl from "ytdl-core";
 
-import ApplicationComponent from "./app/ApplicationComponent.js";
+import YouTubeDownloader from "./YouTubeDownloader.js";
 
 async function delay(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
@@ -33,7 +33,7 @@ async function streamToBuffer(readableStream) {
 
 const YOUTUBE_ID_TOKEN_HEADER = "x-youtube-identity-token";
 
-export default class YouTubeDownloader extends ApplicationComponent {
+export default class YTDLYouTubeDownloader extends YouTubeDownloader {
 	async initialize() {
 		await super.initialize();
 

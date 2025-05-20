@@ -1,20 +1,39 @@
 import { EOL } from "node:os";
 
 import { Telegraf, Input } from "telegraf";
-import moment from "moment";
+import async from "async";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
-import AsyncQueue from "../tools/AsyncQueue.js";
-import chunkString from "../tools/chunkString.js";
 
 const MAX_MESSAGE_LENGTH = 4096;
 const LOG_MESSAGE_LIFETIME_IN_MILLISECONDS = 10000;
+
+function chunkString(str, chunkLength = MAX_MESSAGE_LENGTH) {
+	const size = Math.ceil(str.length / chunkLength);
+	const result = [];
+	let offset = 0;
+
+	for (let i = 0; i < size; i++) {
+		result.push(str.substr(offset, chunkLength));
+		offset += chunkLength;
+	}
+
+	return result;
+}
+
 
 export default class TelegramBot extends ApplicationComponent {
 	async initialize() {
 		await super.initialize();
 
-		this.asyncQueue = new AsyncQueue();
+		this.asyncQueue = async.queue(async task => {
+			try {
+				await task();
+			} catch (error) {
+				log.error(`Error in function ${task.name}:`, error.stack);
+			}
+		}, 1);
+
 		this.lastCommands = {};
 
 		this.initializeBot();
@@ -65,10 +84,10 @@ export default class TelegramBot extends ApplicationComponent {
 		try {
 			const { youTubeDownloader } = this.application;
 
-			const youTubeId = youTubeDownloader.parseYouTubeId(ctx.message.text);
-			if (!youTubeId) throw new Error("Некорректая ссылка или ID");
+			const youTubeVideoId = youTubeDownloader.parseVideoId(ctx.message.text);
+			if (!youTubeVideoId) throw new Error("Некорректая ссылка или ID");
 
-			const youTubeVideoInfo = await youTubeDownloader.getInfo(youTubeId);
+			const youTubeVideoInfo = await youTubeDownloader.getVideoInfo(youTubeVideoId);
 
 			if (youTubeVideoInfo.videoDetails.duration.asMinutes() > 45) throw new Error("Видео больше 45 минут временно не поддерживаются");
 
@@ -91,7 +110,7 @@ export default class TelegramBot extends ApplicationComponent {
 
 			this.lastCommands[chatId] = {
 				cmd: "processYouTubeLinkCommand",
-				youTubeId,
+				youTubeId: youTubeVideoId,
 				youTubeVideoInfo
 			};
 		} catch (error) {
@@ -115,7 +134,7 @@ export default class TelegramBot extends ApplicationComponent {
 
 			const text = await youTubeDownloader.downloadYouTubeSubtitlesFromVideo(youTubeVideoInfo);
 			if (text) {
-				for (const chunk of chunkString(text, MAX_MESSAGE_LENGTH)) await this.sendMessage(chatId, chunk);
+				for (const chunk of chunkString(text)) await this.sendMessage(chatId, chunk);
 			} else await this.sendMessage(chatId, text || "Нет субтитров у видео");
 
 			this.lastCommands[chatId] = {
