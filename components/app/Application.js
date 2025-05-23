@@ -1,3 +1,7 @@
+import path from "node:path";
+
+import fs from "fs-extra";
+
 import TelegramBot from "../TelegramBot.js";
 import YouTubeDownloader from "../downloaders/InnertubeYouTubeDownloader.js";
 
@@ -12,6 +16,8 @@ export default class Application {
 
 		this.onUncaughtException = defaultErrorHandler;
 		this.onUnhandledRejection = defaultErrorHandler;
+
+		this.info = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json")));
 
 		this.components = [];
 

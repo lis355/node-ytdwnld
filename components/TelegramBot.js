@@ -21,18 +21,20 @@ function chunkString(str, chunkLength = MAX_MESSAGE_LENGTH) {
 	return result;
 }
 
+const allowedUserIds = new Set((process.env.TELEGRAM_ALLOWED_USER_IDS || "").split(",").map(s => Number(s.trim())).filter(Number.isFinite));
+
+async function acessMiddleware(ctx, next) {
+	return allowedUserIds.has(ctx.from.id)
+		? next()
+		: next(new Error("Acess denied"));
+}
 
 export default class TelegramBot extends ApplicationComponent {
 	async initialize() {
 		await super.initialize();
 
-		this.asyncQueue = async.queue(async task => {
-			try {
-				await task();
-			} catch (error) {
-				log.error(`Error in function ${task.name}:`, error.stack);
-			}
-		}, 1);
+		this.taskQueue = async.queue(async task => task());
+		this.taskQueue.error(this.handleError.bind(this));
 
 		this.lastCommands = {};
 
@@ -45,17 +47,24 @@ export default class TelegramBot extends ApplicationComponent {
 		this.bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
 		this.bot
-			.command("start", async ctx => this.sendMessage(ctx.chat.id, "Скопируйте ссылку на видео"))
-			.command("subs", async ctx => this.asyncQueue.push(async () => this.processSubtitlesCommand(ctx)))
-			.on("message", async ctx => this.asyncQueue.push(async () => this.processTextMessage(ctx)))
+			.use(acessMiddleware)
+			.command("start", async ctx => this.sendMessage(ctx.chat.id, `${this.application.info.name} v${this.application.info.version}`))
+			// .command("subs", async ctx => this.taskQueue.push(async () => this.processSubtitlesCommand(ctx)))
+			.on("message", ctx => this.processTextMessage(ctx))
 			.catch((error, ctx) => {
 				console.error(error);
 			})
 			.launch();
 	}
 
-	async processTextMessage(ctx) {
-		await this.processYouTubeLinkCommand(ctx);
+	handleError(error) {
+
+	}
+
+	processTextMessage(ctx) {
+		// TODO write waiting
+
+		this.taskQueue.push(async () => this.this.processYouTubeLinkCommand(ctx));
 	}
 
 	async sendMessage(chatId, message) {
@@ -118,32 +127,32 @@ export default class TelegramBot extends ApplicationComponent {
 		}
 	}
 
-	async processSubtitlesCommand(ctx) {
-		const chatId = ctx.chat.id;
+	// async processSubtitlesCommand(ctx) {
+	// 	const chatId = ctx.chat.id;
 
-		console.log(`[TelegramBot]: [processSubtitlesCommand] for ${ctx.chat.username} id=${chatId}`);
+	// 	console.log(`[TelegramBot]: [processSubtitlesCommand] for ${ctx.chat.username} id=${chatId}`);
 
-		try {
-			const lastCommands = this.lastCommands[chatId];
-			if (!lastCommands ||
-				lastCommands.cmd !== "processYouTubeLinkCommand") throw new Error("Для получения субтитров сначала выполните команду получения аудио из видео");
+	// 	try {
+	// 		const lastCommands = this.lastCommands[chatId];
+	// 		if (!lastCommands ||
+	// 			lastCommands.cmd !== "processYouTubeLinkCommand") throw new Error("Для получения субтитров сначала выполните команду получения аудио из видео");
 
-			const { youTubeId, youTubeVideoInfo } = this.lastCommands[chatId];
+	// 		const { youTubeId, youTubeVideoInfo } = this.lastCommands[chatId];
 
-			const { youTubeDownloader } = this.application;
+	// 		const { youTubeDownloader } = this.application;
 
-			const text = await youTubeDownloader.downloadYouTubeSubtitlesFromVideo(youTubeVideoInfo);
-			if (text) {
-				for (const chunk of chunkString(text)) await this.sendMessage(chatId, chunk);
-			} else await this.sendMessage(chatId, text || "Нет субтитров у видео");
+	// 		const text = await youTubeDownloader.downloadYouTubeSubtitlesFromVideo(youTubeVideoInfo);
+	// 		if (text) {
+	// 			for (const chunk of chunkString(text)) await this.sendMessage(chatId, chunk);
+	// 		} else await this.sendMessage(chatId, text || "Нет субтитров у видео");
 
-			this.lastCommands[chatId] = {
-				cmd: "processSubtitlesCommand",
-				youTubeId,
-				youTubeVideoInfo
-			};
-		} catch (error) {
-			await this.sendMessage(chatId, `Ошибка: ${error.message}`);
-		}
-	}
+	// 		this.lastCommands[chatId] = {
+	// 			cmd: "processSubtitlesCommand",
+	// 			youTubeId,
+	// 			youTubeVideoInfo
+	// 		};
+	// 	} catch (error) {
+	// 		await this.sendMessage(chatId, `Ошибка: ${error.message}`);
+	// 	}
+	// }
 };

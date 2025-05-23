@@ -1,7 +1,7 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import { config as dotenv } from "dotenv-flow";
+import fs from "fs-extra";
 
 import Application from "./components/app/Application.js";
 
