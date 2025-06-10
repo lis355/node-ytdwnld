@@ -13,12 +13,32 @@
 				"<node_internals>/**"
 			],
 			"program": "${workspaceFolder}/start.js",
+			"console": "integratedTerminal",
+			"outputCapture": "std",
 			"cwd": "${workspaceFolder}",
 			"env": {
 				"DEVELOPER_ENVIRONMENT": "true"
 			},
+			"args": []
+		},
+		{
+			"name": "startLocalDownloader",
+			"type": "node",
+			"runtimeExecutable": "${env:APPDATA}/nvm/v24.1.0/node",
+			"request": "launch",
+			"skipFiles": [
+				"<node_internals>/**"
+			],
+			"program": "${workspaceFolder}/startLocalDownloader.js",
 			"console": "integratedTerminal",
-			"outputCapture": "std"
+			"outputCapture": "std",
+			"cwd": "${workspaceFolder}",
+			"env": {
+				"DEVELOPER_ENVIRONMENT": "true"
+			},
+			"args": [
+				"https://www.youtube.com/watch?v=BfFPlkPYZFo"
+			]
 		},
 		{
 			"name": "service-windows-install",

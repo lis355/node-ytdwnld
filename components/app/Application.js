@@ -2,9 +2,6 @@ import path from "node:path";
 
 import fs from "fs-extra";
 
-import TelegramBot from "../TelegramBot.js";
-import YouTubeDownloader from "../downloaders/InnertubeYouTubeDownloader.js";
-
 export default class Application {
 	constructor() {
 		process.on("uncaughtException", error => { this.onUncaughtException(error); });
@@ -20,9 +17,6 @@ export default class Application {
 		this.info = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json")));
 
 		this.components = [];
-
-		this.addComponent(this.telegramBot = new TelegramBot());
-		this.addComponent(this.youTubeDownloader = new YouTubeDownloader());
 	}
 
 	addComponent(component) {
@@ -33,8 +27,6 @@ export default class Application {
 
 	async initialize() {
 		for (let i = 0; i < this.components.length; i++) await this.components[i].initialize();
-
-		console.log("[Application]: started");
 	}
 
 	async run() {

@@ -1,10 +1,13 @@
+// import path from "node:path";
+
 import { BG, buildURL, GOOG_API_KEY, USER_AGENT } from "bgutils-js";
 import { Innertube, UniversalCache } from "youtubei.js";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { setParserErrorHandler as innertubeSetParserErrorHandler } from "../../node_modules/youtubei.js/dist/src/parser/parser.js";
+// import fs from "fs-extra";
 
 import dayjs from "../../utils/dayjs.js";
-import YouTubeDownloader from "./YouTubeDownloader.js";
+import YouTubeVideoInfoProvider from "./YouTubeVideoInfoProvider.js";
 
 // https://github.com/LuanRT/BgUtils/blob/main/examples/node/innertube-challenge-fetcher-example.ts
 
@@ -15,7 +18,7 @@ innertubeSetParserErrorHandler(error => {
 	// console.error(error);
 });
 
-export default class InnertubeYouTubeDownloader extends YouTubeDownloader {
+export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoProvider {
 	async initialize() {
 		await super.initialize();
 
@@ -138,6 +141,8 @@ export default class InnertubeYouTubeDownloader extends YouTubeDownloader {
 		const info = await this.innertube.getInfo(videoId);
 		const mwebInfo = await this.innertube.getBasicInfo(videoId, "MWEB");
 
+		// fs.outputFileSync(path.resolve(this.application.userDataDirectory, "info.json"), JSON.stringify({ info, mwebInfo }, null, "\t"));
+
 		if (mwebInfo["playability_status"].status === "OK" &&
 			mwebInfo["streaming_data"]) {
 			info["playability_status"] = mwebInfo["playability_status"];
@@ -238,6 +243,36 @@ export default class InnertubeYouTubeDownloader extends YouTubeDownloader {
 				url: format["url"]
 			}))
 		};
+
+		if (info.captions &&
+			info.captions["caption_tracks"] &&
+			info.captions["caption_tracks"][0]) videoInfo.subtitles = {
+				url: info.captions["caption_tracks"][0]["base_url"]
+			};
+
+		videoInfo.timings = info["basic_info"]["short_description"]
+			.split("\n")
+			.map(s => s.trim())
+			.filter(Boolean)
+			.map(line => {
+				if (!/^\d\d/.test(line)) return null;
+
+				const spaceIndex = line.indexOf(" ");
+
+				const timeParts = line.substring(0, spaceIndex).split(":").map(parseFloat).filter(Number.isFinite);
+
+				let timing;
+				if (timeParts.length === 3) timing = dayjs.duration({ hours: timeParts[0], minutes: timeParts[1], seconds: timeParts[2] });
+				else if (timeParts.length === 2) timing = dayjs.duration({ minutes: timeParts[0], seconds: timeParts[1] });
+				else if (timeParts.length === 1) timing = dayjs.duration({ seconds: timeParts[0] });
+				else return null;
+
+				return {
+					timing,
+					caption: line.substring(spaceIndex + 1)
+				}
+			})
+			.filter(Boolean);
 
 		// await this.navigateBrowserAndUpdateCookies(youTubeId);
 
