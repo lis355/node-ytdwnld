@@ -1,3 +1,4 @@
+import childProcess from "node:child_process";
 import path from "node:path";
 import stream from "node:stream";
 import streamPromises from "node:stream/promises";
@@ -7,6 +8,7 @@ import { Command } from "commander";
 import { config as dotenv } from "dotenv-flow";
 import filenamify from "filenamify";
 import fs from "fs-extra";
+import ftp from "basic-ftp";
 
 import { ffmpegGetExtractAACAudioFromMP4VideoStream } from "./utils/ffmpeg.js";
 import Application from "./components/app/Application.js";
@@ -16,6 +18,78 @@ import YouTubeVideoInfoProvider from "./components/downloaders/InnertubeYouTubeV
 import progressPassThroughStream from "./utils/progressPassThroughStream.js";
 
 dotenv();
+
+class Uploader {
+	async initialize() { }
+	async destroy() { }
+
+	async createBaseDirectory(localDirectoryPath) { }
+	async uploadFileStream(fileName, readableStream) { }
+	async openBaseDirectoryInExplorer() { }
+}
+
+class FileSystemUploader extends Uploader {
+	constructor(baseDirectory) {
+		super();
+
+		this.baseDirectory = baseDirectory;
+	}
+
+	async createBaseDirectory(localDirectoryPath) {
+		this.baseDirectory = path.resolve(this.baseDirectory, localDirectoryPath);
+		fs.ensureDirSync(this.baseDirectory);
+	}
+
+	async uploadFileStream(fileName, readableStream) {
+		const outputFileStream = fs.createWriteStream(path.resolve(this.baseDirectory, fileName));
+
+		await streamPromises.finished(readableStream.pipe(outputFileStream));
+	}
+
+	async openBaseDirectoryInExplorer() {
+		childProcess.spawn("explorer.exe", [this.baseDirectory]);
+	}
+}
+
+class FtpUploader extends Uploader {
+	constructor(baseUrl) {
+		super();
+
+		this.baseUrl = baseUrl;
+	}
+
+	async initialize() {
+		this.client = new ftp.Client();
+
+		// client.ftp.verbose = true;
+
+		await this.client.access({
+			host: this.baseUrl.hostname,
+			port: Number(this.baseUrl.port)
+		});
+	}
+
+	async destroy() {
+		this.client.close();
+
+		this.client = null;
+	}
+
+	async createBaseDirectory(localDirectoryPath) {
+		this.baseDirectory = this.baseUrl.pathname + "/" + localDirectoryPath;
+
+		await this.client.ensureDir(this.baseDirectory);
+		await this.client.cd("/");
+	}
+
+	async uploadFileStream(fileName, readableStream) {
+		await this.client.uploadFrom(readableStream, this.baseDirectory + "/" + fileName);
+	}
+
+	async openBaseDirectoryInExplorer() {
+		childProcess.spawn("explorer.exe", [this.baseUrl.origin + this.baseDirectory]);
+	}
+}
 
 class App extends Application {
 	constructor() {
@@ -68,24 +142,39 @@ class App extends Application {
 		// fs.outputFileSync(path.resolve(this.userDataDirectory, "youTubeVideoInfo.json"), JSON.stringify(youTubeVideoInfo, null, "\t"));
 		// const youTubeVideoInfo = JSON.parse(fs.readFileSync(path.resolve(this.userDataDirectory, "youTubeVideoInfo.json")).toString());
 
-		const formats = youTubeVideoInfo.formats.slice(0, 1);
+		const formats = youTubeVideoInfo.formats.slice(0, 1); // select first
 		// .filter(format => format.audioQuality === "AUDIO_QUALITY_MEDIUM" &&
 		// 	format.codec.includes("audio/webm"))
 		// .sort((a, b) => b.size - a.size); // descending
 
 		if (formats.length === 0) throw new Error("No concrete format");
 
-		const mediaDownloadingStream = await this.youTubeVideoInfoDownloader.getMediaStream(youTubeVideoInfo, formats[0]);
+		const format = formats[0];
 
-		progressPassThroughStream({})
+		const mediaDownloadingStream = await this.youTubeVideoInfoDownloader.getMediaStream(youTubeVideoInfo, format);
+		const mediaDownloadingProgressStream = progressPassThroughStream({
+			dataLength: format.size,
+			onStart: () => { console.log(`Downloading ${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} [${format.codec}]`); }
+		});
 
-		// const mediaBuffer = await streamСonsumers.buffer(mediaDownloadingStream);
+		const mediaStream = mediaDownloadingStream.pipe(mediaDownloadingProgressStream);
+		const mediaBuffer = await streamСonsumers.buffer(mediaStream);
 
-		// await streamPromises.finished(mediaDownloadingStream.pipe(fs.createWriteStream(path.resolve(this.userDataDirectory, "video.mp4"))));
-		const mediaBuffer = fs.readFileSync(path.resolve(this.userDataDirectory, "video.mp4"));
+		// await streamPromises.finished(mediaStream.pipe(fs.createWriteStream(path.resolve(this.userDataDirectory, "video.mp4"))));
+		// const mediaBuffer = fs.readFileSync(path.resolve(this.userDataDirectory, "video.mp4"));
 
-		const outputDirectory = path.resolve(process.env.OUTPUT_DIRECTORY, filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "_", maxLength: 1024 }));
-		fs.ensureDirSync(outputDirectory);
+		let uploader;
+		try {
+			const outputDirectoryUrl = new URL(process.env.OUTPUT_DIRECTORY);
+			if (outputDirectoryUrl.protocol.toLowerCase() === "ftp:") uploader = new FtpUploader(outputDirectoryUrl);
+		} catch (_) {
+		}
+
+		if (!uploader) uploader = new FileSystemUploader(process.env.OUTPUT_DIRECTORY);
+
+		await uploader.initialize();
+
+		await uploader.createBaseDirectory(filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 }));
 
 		const parts = [];
 
@@ -101,12 +190,34 @@ class App extends Application {
 		for (let i = 0; i < parts.length; i++) {
 			const part = parts[i];
 
-			const audioStream = ffmpegGetExtractAACAudioFromMP4VideoStream(stream.Readable.from(mediaBuffer), { start: part.start, finish: part.finish });
-			const outputFileStream = fs.createWriteStream(path.resolve(outputDirectory, `${i.toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`));
+			const mediaStream = stream.Readable.from(mediaBuffer)
+				.pipe(
+					progressPassThroughStream({
+						dataLength: mediaBuffer.byteLength,
+						onStart: () => { console.log(`Extracting audio ${i.toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${part.caption}`); }
+					})
+				);
 
-			await streamPromises.finished(audioStream.pipe(outputFileStream));
+			const audioStream = ffmpegGetExtractAACAudioFromMP4VideoStream(mediaStream, { start: part.start, finish: part.finish });
+			const audioBuffer = await streamСonsumers.buffer(audioStream);
+
+			const fileName = `${i.toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`;
+
+			const uploadStream = stream.Readable.from(audioBuffer);
+			// .pipe(
+			// 	progressPassThroughStream({
+			// 		dataLength: audioBuffer.byteLength,
+			// 		onStart: () => { console.log(`Uploading file ${fileName}`); }
+			// 	})
+			// );
+
+			await uploader.uploadFileStream(fileName, uploadStream);
 		}
-	}
+
+		await uploader.openBaseDirectoryInExplorer();
+
+		await uploader.destroy();
+	};
 }
 
 const application = new App();
