@@ -13,9 +13,10 @@ import ftp from "basic-ftp";
 import { ffmpegGetExtractAACAudioFromMP4VideoStream } from "./utils/ffmpeg.js";
 import Application from "./components/app/Application.js";
 import dayjs from "./utils/dayjs.js";
+import ProgressBar from "./utils/ProgressBar.js";
+import progressPassThroughStream from "./utils/progressPassThroughStream.js";
 import YouTubeVideoInfoDownloader from "./components/downloaders/YouTubeVideoInfoDownloader.js";
 import YouTubeVideoInfoProvider from "./components/downloaders/InnertubeYouTubeVideoInfoProvider.js";
-import progressPassThroughStream from "./utils/progressPassThroughStream.js";
 
 dotenv();
 
@@ -40,7 +41,7 @@ class FileSystemUploader extends Uploader {
 		fs.ensureDirSync(this.baseDirectory);
 	}
 
-	async uploadFileStream(fileName, readableStream) {
+	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
 		const outputFileStream = fs.createWriteStream(path.resolve(this.baseDirectory, fileName));
 
 		await streamPromises.finished(readableStream.pipe(outputFileStream));
@@ -82,8 +83,20 @@ class FtpUploader extends Uploader {
 		await this.client.cd("/");
 	}
 
-	async uploadFileStream(fileName, readableStream) {
-		await this.client.uploadFrom(readableStream, this.baseDirectory + "/" + fileName);
+	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
+		client.trackProgress(null);
+
+		try {
+			if (onUploadUpdate) {
+				client.trackProgress(info => {
+					onUploadUpdate(info.bytes);
+				});
+			}
+
+			await this.client.uploadFrom(readableStream, this.baseDirectory + "/" + fileName);
+		} finally {
+			client.trackProgress(null);
+		}
 	}
 
 	async openBaseDirectoryInExplorer() {
@@ -120,6 +133,10 @@ class App extends Application {
 	async run() {
 		await super.run();
 
+		console.log(`[Application directory]: ${import.meta.dirname}`);
+		console.log("[Config]:");
+		console.log(`[OUTPUT_DIRECTORY]: ${process.env.OUTPUT_DIRECTORY}`);
+
 		const program = new Command();
 
 		program
@@ -137,31 +154,37 @@ class App extends Application {
 		const videoUrlOrId = program.args[0];
 
 		const youTubeId = this.youTubeVideoInfoProvider.parseVideoId(videoUrlOrId);
+		console.log(`[YouTubeVideoId]: ${youTubeId}`);
+
 		const youTubeVideoInfo = await this.youTubeVideoInfoProvider.getVideoInfo(youTubeId);
+		console.log(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`);
 
 		// fs.outputFileSync(path.resolve(this.userDataDirectory, "youTubeVideoInfo.json"), JSON.stringify(youTubeVideoInfo, null, "\t"));
 		// const youTubeVideoInfo = JSON.parse(fs.readFileSync(path.resolve(this.userDataDirectory, "youTubeVideoInfo.json")).toString());
 
-		const formats = youTubeVideoInfo.formats.slice(0, 1); // select first
-		// .filter(format => format.audioQuality === "AUDIO_QUALITY_MEDIUM" &&
-		// 	format.codec.includes("audio/webm"))
-		// .sort((a, b) => b.size - a.size); // descending
+		// select first 360p mp4 video
+		const formatOptions = {};
 
-		if (formats.length === 0) throw new Error("No concrete format");
+		// select opus ogg audio
+		// const formatOptions = {
+		// 	type: "audio",
+		// 	codec: "opus",
+		// 	format: "audio/webm",
+		// 	quality: "best"
+		// };
 
-		const format = formats[0];
+		// const mediaStreamInfo = await this.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
+		// const mediaDownloadingStream = await this.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
+		// const mediaDownloadingProgressStream = progressPassThroughStream({
+		// 	dataLength: mediaStreamInfo.size,
+		// 	onStart: () => { console.log(`Downloading ${mediaStreamInfo.type}`); }
+		// });
 
-		const mediaDownloadingStream = await this.youTubeVideoInfoDownloader.getMediaStream(youTubeVideoInfo, format);
-		const mediaDownloadingProgressStream = progressPassThroughStream({
-			dataLength: format.size,
-			onStart: () => { console.log(`Downloading ${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} [${format.codec}]`); }
-		});
-
-		const mediaStream = mediaDownloadingStream.pipe(mediaDownloadingProgressStream);
-		const mediaBuffer = await streamСonsumers.buffer(mediaStream);
+		// const mediaStream = mediaDownloadingStream.pipe(mediaDownloadingProgressStream);
+		// const mediaBuffer = await streamСonsumers.buffer(mediaStream);
 
 		// await streamPromises.finished(mediaStream.pipe(fs.createWriteStream(path.resolve(this.userDataDirectory, "video.mp4"))));
-		// const mediaBuffer = fs.readFileSync(path.resolve(this.userDataDirectory, "video.mp4"));
+		const mediaBuffer = fs.readFileSync(path.resolve(this.userDataDirectory, "video.mp4"));
 
 		let uploader;
 		try {
@@ -204,14 +227,15 @@ class App extends Application {
 			const fileName = `${i.toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`;
 
 			const uploadStream = stream.Readable.from(audioBuffer);
-			// .pipe(
-			// 	progressPassThroughStream({
-			// 		dataLength: audioBuffer.byteLength,
-			// 		onStart: () => { console.log(`Uploading file ${fileName}`); }
-			// 	})
-			// );
 
-			await uploader.uploadFileStream(fileName, uploadStream);
+			const uploadProgressBar = new ProgressBar(audioBuffer.byteLength);
+
+			console.log(`Uploading file ${fileName}`);
+			uploadProgressBar.start();
+
+			await uploader.uploadFileStream(fileName, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
+
+			uploadProgressBar.finish();
 		}
 
 		await uploader.openBaseDirectoryInExplorer();

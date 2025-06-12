@@ -1,8 +1,5 @@
 import stream from "node:stream";
 
-import byteSize from "byte-size";
-import cliProgress from "cli-progress";
-
 import ApplicationComponent from "../app/ApplicationComponent.js";
 
 export default class YouTubeVideoInfoDownloader extends ApplicationComponent {

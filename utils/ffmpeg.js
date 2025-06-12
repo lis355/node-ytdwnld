@@ -15,14 +15,17 @@ import dayjs from "./dayjs.js";
 export function ffmpegGetExtractAACAudioFromMP4VideoStream(videoStream, { start, finish }) {
 	// -i pipe:0 -c copy -map 0:a:0 -f adts pipe:1 -- extract aac audio from mp4 video
 
-	const args = ["-i", "pipe:0", "-c", "copy", "-map", "0:a:0", "-f", "adts", "pipe:1"];
+	const args = ["-i", "pipe:0", "-c", "copy", "-map", "0:a:0", "-f", "adts"];
 	if (start) args.push("-ss", start.asSeconds().toString());
 	if (finish) args.push("-t", dayjs.duration(finish - start).asSeconds().toString());
+	args.push("pipe:1");
 
 	const ffmpegConvertProcess = childProcess.spawn("ffmpeg", args);
 
 	ffmpegConvertProcess.stderr
 		.pipe(new LineTransformStream(line => {
+			// console.log(line);
+
 			if (line.toLowerCase().indexOf("error") >= 0) throw new Error(line);
 
 			return line;

@@ -1,4 +1,5 @@
 // import path from "node:path";
+import stream from "node:stream";
 
 import { BG, buildURL, GOOG_API_KEY, USER_AGENT } from "bgutils-js";
 import { Innertube, UniversalCache } from "youtubei.js";
@@ -143,11 +144,11 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 
 		// fs.outputFileSync(path.resolve(this.application.userDataDirectory, "info.json"), JSON.stringify({ info, mwebInfo }, null, "\t"));
 
-		if (mwebInfo["playability_status"].status === "OK" &&
-			mwebInfo["streaming_data"]) {
-			info["playability_status"] = mwebInfo["playability_status"];
-			info["streaming_data"] = mwebInfo["streaming_data"];
-		}
+		if (mwebInfo["playability_status"].status !== "OK" ||
+			!mwebInfo["streaming_data"]) throw new Error("Bad playability status");
+
+		info["playability_status"] = mwebInfo["playability_status"];
+		info["streaming_data"] = mwebInfo["streaming_data"];
 
 		// let hasTrailer = info.has_trailer;
 		// let trailerIsAgeRestricted = info.getTrailerInfo() === null;
@@ -198,37 +199,41 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 		// 	info.storyboards = trailerInfo.storyboards;
 		// }
 
-		function decipherFormats(formats, player) {
-			for (const format of formats) format.url = format.decipher(player);
-		}
+		// function decipherFormats(formats, player) {
+		// 	for (const format of formats) format.url = format.decipher(player);
+		// }
 
-		if (info["streaming_data"]) {
-			decipherFormats(info["streaming_data"].formats, this.innertube.session.player);
+		// if (info["streaming_data"]) {
+		// 	decipherFormats(info["streaming_data"].formats, this.innertube.session.player);
 
-			const firstFormat = info["streaming_data"]["adaptive_formats"][0];
+		// 	const firstFormat = info["streaming_data"]["adaptive_formats"][0];
 
-			if (firstFormat.url ||
-				firstFormat["signature_cipher"] ||
-				firstFormat.cipher) {
-				decipherFormats(info["streaming_data"]["adaptive_formats"], this.innertube.session.player);
-			}
+		// 	if (firstFormat.url ||
+		// 		firstFormat["signature_cipher"] ||
+		// 		firstFormat.cipher) {
+		// 		decipherFormats(info["streaming_data"]["adaptive_formats"], this.innertube.session.player);
+		// 	}
 
-			// if (info["streaming_data"].dash_manifest_url) {
-			// 	let url = info["streaming_data"].dash_manifest_url;
+		// 	// if (info["streaming_data"].dash_manifest_url) {
+		// 	// 	let url = info["streaming_data"].dash_manifest_url;
 
-			// 	if (url.includes("?")) {
-			// 		url += `&pot=${encodeURIComponent(sessionPoToken)}&mpd_version=7`;
-			// 	} else {
-			// 		url += `${url.endsWith("/") ? "" : "/"}pot/${encodeURIComponent(sessionPoToken)}/mpd_version/7`;
-			// 	}
+		// 	// 	if (url.includes("?")) {
+		// 	// 		url += `&pot=${encodeURIComponent(sessionPoToken)}&mpd_version=7`;
+		// 	// 	} else {
+		// 	// 		url += `${url.endsWith("/") ? "" : "/"}pot/${encodeURIComponent(sessionPoToken)}/mpd_version/7`;
+		// 	// 	}
 
-			// 	info["streaming_data"].dash_manifest_url = url;
-			// }
-		}
+		// 	// 	info["streaming_data"].dash_manifest_url = url;
+		// 	// }
+		// }
 
 		const { id, author, title } = info["basic_info"];
 
 		const videoInfo = {
+			meta: {
+				info
+			},
+
 			id,
 			author,
 			title,
@@ -299,62 +304,15 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 		return videoInfo;
 	}
 
-	// async downloadYouTubeAudioFromVideo(videoInfo) {
-	// 	// return new Promise(async (resolve, reject) => {
-	// 	// 	const video = ytdl.downloadFromInfo(info, { filter: "audioonly" });
+	async getMediaStreamInfo(videoInfo, options) {
+		const format = videoInfo.meta.info.chooseFormat(options);
+		format.type = format["mime_type"];
+		format.size = format["content_length"];
 
-	// 	// 	video.on("error", reject);
+		return format;
+	}
 
-	// 	// 	const bufferStream = new PassThrough();
-
-	// 	// 	const child = spawn(`"${process.env.FFMPEG_PATH}" -v quiet -i pipe:0 -b:a 128k -f mp3 pipe:1`, { shell: true });
-
-	// 	// 	child.stderr.on("data", data => {
-	// 	// 		const line = data.toString();
-
-	// 	// 		console.error(line);
-	// 	// 	});
-
-	// 	// 	child.stdout.pipe(bufferStream);
-
-	// 	// 	video.pipe(child.stdin);
-
-	// 	// 	const buffer = await streamToBuffer(bufferStream);
-
-	// 	// 	return resolve(buffer);
-	// 	// });
-
-	// 	const videoName = `${videoInfo.author} - ${videoInfo.title}`;
-	// 	console.log(videoName);
-
-	// 	const format = videoInfo["streaming_data"]["formats"][0];
-
-	// 	// const format = info["streaming_data"]["adaptive_formats"]
-	// 	// 	.find(format => format["mime_type"].startsWith("audio/mp4") &&
-	// 	// 		format["audio_quality"] === "AUDIO_QUALITY_MEDIUM");
-
-	// 	let fileExtension = format["mime_type"].split("/")[1].toLowerCase();
-	// 	if (fileExtension.indexOf(";") > 0) fileExtension = fileExtension.substring(0, fileExtension.indexOf(";"));
-	// 	if (fileExtension.indexOf(" ") > 0) fileExtension = fileExtension.substring(0, fileExtension.indexOf(" "));
-
-	// 	const url = format.freeTubeUrl;
-	// }
-
-	// async downloadYouTubeSubtitlesFromVideo(info) {
-	// 	const subtitlesUrl = _.get(info, "player_response.captions.playerCaptionsTracklistRenderer.captionTracks.0.baseUrl");
-	// 	if (!subtitlesUrl) return null;
-
-	// 	const xmlSubtitles = await new Promise(async (resolve, reject) => {
-	// 		fetch(subtitlesUrl)
-	// 			.then(response => response.text())
-	// 			.then(resolve)
-	// 			.catch(reject);
-	// 	});
-
-	// 	const subtitles = await xml2js.parseStringPromise(xmlSubtitles);
-	// 	const rawText = subtitles.transcript.text.map(item => item._).join(" ");
-	// 	const text = decode(rawText);
-
-	// 	return text;
-	// }
+	async getMediaStream(videoInfo, options) {
+		return stream.Readable.fromWeb(await videoInfo.meta.info.download(options));
+	}
 }
