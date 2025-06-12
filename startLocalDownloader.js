@@ -84,18 +84,18 @@ class FtpUploader extends Uploader {
 	}
 
 	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
-		client.trackProgress(null);
+		this.client.trackProgress(null);
 
 		try {
 			if (onUploadUpdate) {
-				client.trackProgress(info => {
+				this.client.trackProgress(info => {
 					onUploadUpdate(info.bytes);
 				});
 			}
 
 			await this.client.uploadFrom(readableStream, this.baseDirectory + "/" + fileName);
 		} finally {
-			client.trackProgress(null);
+			this.client.trackProgress(null);
 		}
 	}
 
@@ -173,18 +173,18 @@ class App extends Application {
 		// 	quality: "best"
 		// };
 
-		// const mediaStreamInfo = await this.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
-		// const mediaDownloadingStream = await this.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
-		// const mediaDownloadingProgressStream = progressPassThroughStream({
-		// 	dataLength: mediaStreamInfo.size,
-		// 	onStart: () => { console.log(`Downloading ${mediaStreamInfo.type}`); }
-		// });
+		const mediaStreamInfo = await this.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
+		const mediaDownloadingStream = await this.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
+		const mediaDownloadingProgressStream = progressPassThroughStream({
+			dataLength: mediaStreamInfo.size,
+			onStart: () => { console.log(`Downloading ${mediaStreamInfo.type}`); }
+		});
 
-		// const mediaStream = mediaDownloadingStream.pipe(mediaDownloadingProgressStream);
-		// const mediaBuffer = await streamСonsumers.buffer(mediaStream);
+		const mediaStream = mediaDownloadingStream.pipe(mediaDownloadingProgressStream);
+		const mediaBuffer = await streamСonsumers.buffer(mediaStream);
 
-		// await streamPromises.finished(mediaStream.pipe(fs.createWriteStream(path.resolve(this.userDataDirectory, "video.mp4"))));
-		const mediaBuffer = fs.readFileSync(path.resolve(this.userDataDirectory, "video.mp4"));
+		await streamPromises.finished(mediaStream.pipe(fs.createWriteStream(path.resolve(this.userDataDirectory, "video.mp4"))));
+		// const mediaBuffer = fs.readFileSync(path.resolve(this.userDataDirectory, "video.mp4"));
 
 		let uploader;
 		try {
@@ -202,7 +202,7 @@ class App extends Application {
 		const parts = [];
 
 		if (youTubeVideoInfo.timings.length === 0 ||
-			youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) timings.push({ timing: dayjs.duration({ seconds: 0 }), caption: `${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}` });
+			youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) parts.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: `${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}` });
 
 		for (let i = 0; i < youTubeVideoInfo.timings.length; i++) {
 			const timing = youTubeVideoInfo.timings[i];

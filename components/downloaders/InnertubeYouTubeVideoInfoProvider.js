@@ -260,7 +260,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 			.map(s => s.trim())
 			.filter(Boolean)
 			.map(line => {
-				if (!/^\d\d/.test(line)) return null;
+				if (!/^\d\d?:\d\d?/.test(line)) return null;
 
 				const spaceIndex = line.indexOf(" ");
 

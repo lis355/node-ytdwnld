@@ -36,9 +36,7 @@
 			"env": {
 				"DEVELOPER_ENVIRONMENT": "true"
 			},
-			"args": [
-				"https://www.youtube.com/watch?v=BfFPlkPYZFo"
-			]
+			"args": []
 		},
 		{
 			"name": "service-windows-install",
