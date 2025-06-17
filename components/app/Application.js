@@ -1,5 +1,6 @@
-import TelegramBot from "../TelegramBot.js";
-import YouTubeDownloader from "../YouTubeDownloader.js";
+import path from "node:path";
+
+import fs from "fs-extra";
 
 export default class Application {
 	constructor() {
@@ -7,16 +8,18 @@ export default class Application {
 		process.on("unhandledRejection", error => { this.onUnhandledRejection(error); });
 
 		const defaultErrorHandler = error => {
+			// TODO HACK https://github.com/lis355/node-ytdl-audio-telegram-bot/issues/2
+			if (error.message.includes("write EOF")) return;
+
 			console.error(error);
 		};
 
 		this.onUncaughtException = defaultErrorHandler;
 		this.onUnhandledRejection = defaultErrorHandler;
 
-		this.components = [];
+		this.info = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json")));
 
-		this.addComponent(this.telegramBot = new TelegramBot());
-		this.addComponent(this.youTubeDownloader = new YouTubeDownloader());
+		this.components = [];
 	}
 
 	addComponent(component) {
@@ -27,8 +30,6 @@ export default class Application {
 
 	async initialize() {
 		for (let i = 0; i < this.components.length; i++) await this.components[i].initialize();
-
-		console.log("[Application]: started");
 	}
 
 	async run() {

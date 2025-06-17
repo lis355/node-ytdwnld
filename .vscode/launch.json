@@ -4,6 +4,22 @@
 	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
 	"version": "0.2.0",
 	"configurations": [
+		// {
+		// 	"name": "start",
+		// 	"type": "node",
+		// 	"request": "launch",
+		// 	"skipFiles": [
+		// 		"<node_internals>/**"
+		// 	],
+		// 	"program": "${workspaceFolder}/start.js",
+		// 	"console": "integratedTerminal",
+		// 	"outputCapture": "std",
+		// 	"cwd": "${workspaceFolder}",
+		// 	"env": {
+		// 		"DEVELOPER_ENVIRONMENT": "true"
+		// 	},
+		// 	"args": []
+		// },
 		{
 			"name": "start",
 			"type": "node",
@@ -11,13 +27,12 @@
 			"skipFiles": [
 				"<node_internals>/**"
 			],
-			"program": "${workspaceFolder}/start.js",
-			"cwd": "${workspaceFolder}",
-			"env": {
-				"DEVELOPER_ENVIRONMENT": "true"
-			},
+			"program": "${workspaceFolder}/startLocalDownloader.js",
 			"console": "integratedTerminal",
-			"outputCapture": "std"
+			"outputCapture": "std",
+			"cwd": "${workspaceFolder}",
+			"env": {},
+			"args": []
 		},
 		{
 			"name": "service-windows-install",

@@ -1,13 +1,24 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import { config as dotenv } from "dotenv-flow";
+import fs from "fs-extra";
 
 import Application from "./components/app/Application.js";
+import TelegramBot from "./components/TelegramBot.js";
+import YouTubeDownloader from "./components/downloaders/InnertubeYouTubeDownloader.js";
 
 dotenv();
 
-const application = new Application();
+class App extends Application {
+	constructor() {
+		super();
+
+		this.addComponent(this.telegramBot = new TelegramBot());
+		this.addComponent(this.youTubeDownloader = new YouTubeDownloader());
+	}
+}
+
+const application = new App();
 await application.initialize();
 await application.run();
 
