@@ -1,12 +1,13 @@
 {
-	"name": "node-ytdl-audio-telegram-bot",
-	"version": "3.3.0",
+	"name": "node-ytdwnld",
+	"version": "3.4.0",
 	"type": "module",
 	"scripts": {
 		"installApp": "node ./scripts/install.js",
 		"uninstallApp": "node ./scripts/uninstall.js"
 	},
 	"dependencies": {
+		"ansi-escapes": "^7.0.0",
 		"async": "^3.2.6",
 		"basic-ftp": "^5.0.5",
 		"bgutils-js": "^3.2.0",
