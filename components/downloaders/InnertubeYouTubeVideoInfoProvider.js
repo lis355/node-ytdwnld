@@ -23,8 +23,6 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 	async initialize() {
 		await super.initialize();
 
-		if (!process.env.FFMPEG_PATH) throw new Error("FFMPEG_PATH not set");
-
 		this.innertube = await this.createInnertube({ withPlayer: true, generateSessionLocally: true, userAgent });
 		await this.createIntegrityTokenBasedMinter();
 	}

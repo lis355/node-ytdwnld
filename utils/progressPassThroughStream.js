@@ -26,7 +26,7 @@ export default function progressPassThroughStream({
 
 			progressBar.update(processedLength);
 		})
-		.once("end", () => {
+		.once("finish", () => {
 			progressBar.finish();
 
 			if (onFinish) onFinish();
