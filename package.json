@@ -25,6 +25,7 @@
 		"youtubei.js": "^13.4.0"
 	},
 	"devDependencies": {
+		"eslint": "^9.29.0",
 		"node-windows": "^1.0.0-beta.8"
 	}
 }

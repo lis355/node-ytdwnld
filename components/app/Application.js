@@ -8,6 +8,9 @@ export default class Application {
 		process.on("unhandledRejection", error => { this.onUnhandledRejection(error); });
 
 		const defaultErrorHandler = error => {
+			// TODO HACK https://github.com/lis355/node-ytdl-audio-telegram-bot/issues/2
+			if (error.message.includes("write EOF")) return;
+
 			console.error(error);
 		};
 

@@ -21,9 +21,10 @@ import YouTubeVideoInfoProvider from "./components/downloaders/InnertubeYouTubeV
 
 dotenv();
 
-const isDevelopment = process.env.DEVELOPER_ENVIRONMENT === "true";
+const isDevelopment = process.env.VSCODE_INJECTION &&
+	process.env.VSCODE_INSPECTOR_OPTIONS;
 
-async function cacheData(dataInfo, cacheDirectory, isUseCache, asyncDataGetter) {
+async function cacheData({ dataInfo, cacheDirectory, isUseCache, asyncDataGetter }) {
 	let data;
 	let dataFileCachePath;
 
@@ -165,6 +166,7 @@ class App extends Application {
 	async run() {
 		await super.run();
 
+		if (isDevelopment) console.warn("[isDevelopment]");
 		console.log(`[Application directory]: ${import.meta.dirname}`);
 		console.log("[Config]:");
 		console.log(`[OUTPUT_DIRECTORY]: ${process.env.OUTPUT_DIRECTORY}`);
@@ -186,18 +188,22 @@ class App extends Application {
 		const youTubeIds = Array.from(new Set(program.args.map(arg => arg.split(",")).flat().map(s => s.trim()).filter(Boolean)))
 			.map(videoUrlOrId => this.youTubeVideoInfoProvider.parseVideoId(videoUrlOrId));
 
-		console.log(`[YouTubeVideoIds]: [${youTubeIds.length}] ${youTubeIds.join(", ")}`);
+		console.log(`Total ${youTubeIds.length} videos: ${youTubeIds.join(", ")}`);
 
 		await this.createUploader();
 
-		for (const youTubeId of youTubeIds) await this.processYouTubeId(youTubeId);
+		for (let i = 0; i < youTubeIds.length; i++) {
+			const youTubeId = youTubeIds[i];
+
+			console.log(`Start processing ${youTubeId} ${i + 1}/${youTubeIds.length}`);
+			await this.processYouTubeId(youTubeId);
+			console.log(`Finish processing ${youTubeId}`);
+		}
 
 		await this.uploader.destroy();
 	}
 
 	async processYouTubeId(youTubeId) {
-		console.log(`[YouTubeVideoId]: Start processing ${youTubeId}`);
-
 		const youTubeVideoInfo = await this.youTubeVideoInfoProvider.getVideoInfo(youTubeId);
 		console.log(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`);
 
@@ -218,11 +224,11 @@ class App extends Application {
 		const mediaStreamInfo = await this.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
 		const mediaDownloadingStream = await this.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
 
-		const mediaBuffer = await cacheData(
-			youTubeId,
-			path.resolve(this.userDataDirectory, "videoCache"),
-			isDevelopment,
-			async youTubeId => {
+		const mediaBuffer = await cacheData({
+			dataInfo: youTubeId,
+			cacheDirectory: path.resolve(this.userDataDirectory, "videoCache"),
+			isUseCache: isDevelopment,
+			asyncDataGetter: async youTubeId => {
 				const mediaDownloadingProgressStream = progressPassThroughStream({
 					dataLength: mediaStreamInfo.size,
 					onStart: () => { console.log(`Downloading ${mediaStreamInfo.type}`); }
@@ -232,14 +238,14 @@ class App extends Application {
 
 				return streamСonsumers.buffer(mediaStream);
 			}
-		);
+		});
 
 		await this.uploader.createBaseDirectory(filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 }));
 
 		const parts = [];
 
-		if (youTubeVideoInfo.timings.length === 0 ||
-			youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) parts.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: `${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}` });
+		if (youTubeVideoInfo.timings.length === 0) parts.push({ caption: youTubeVideoInfo.title });
+		else if (youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) parts.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
 
 		for (let i = 0; i < youTubeVideoInfo.timings.length; i++) {
 			const timing = youTubeVideoInfo.timings[i];
@@ -250,13 +256,13 @@ class App extends Application {
 		for (let i = 0; i < parts.length; i++) {
 			const part = parts[i];
 
-			const fileName = `${i.toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`;
+			const fileName = `${(i + 1).toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`;
 
 			const mediaStream = stream.Readable.from(mediaBuffer)
 				.pipe(
 					progressPassThroughStream({
 						dataLength: mediaBuffer.byteLength,
-						onStart: () => { console.log(`Extracting audio ${i.toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${fileName}`); }
+						onStart: () => { console.log(`Extracting audio ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${fileName}`); }
 					})
 				);
 
@@ -267,7 +273,7 @@ class App extends Application {
 
 			const uploadProgressBar = new ProgressBar(audioBuffer.byteLength);
 
-			console.log(`Uploading file ${i.toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${fileName}`);
+			console.log(`Uploading file ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${fileName}`);
 			uploadProgressBar.start();
 
 			await this.uploader.uploadFileStream(fileName, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
@@ -275,7 +281,7 @@ class App extends Application {
 			uploadProgressBar.finish();
 		}
 
-		await this.uploader.openBaseDirectoryInExplorer();
+		if (!isDevelopment) await this.uploader.openBaseDirectoryInExplorer();
 	}
 
 	async createUploader() {
@@ -289,7 +295,9 @@ class App extends Application {
 
 		if (!this.uploader) this.uploader = new FileSystemUploader(process.env.OUTPUT_DIRECTORY);
 
+		console.log(`${this.uploader.constructor.name} uploader initializing`);
 		await this.uploader.initialize();
+		console.log(`${this.uploader.constructor.name} uploader initialized`);
 	}
 }
 

@@ -1,4 +1,5 @@
 import childProcess from "node:child_process";
+import stream from "node:stream";
 
 import LineTransformStream from "line-transform-stream";
 
@@ -7,19 +8,24 @@ import dayjs from "./dayjs.js";
 export async function getVersion() {
 	let version;
 
-	const ffmpegConvertProcess = childProcess.spawn("ffmpeg", ["-version"]);
+	const ffmpegProcess = childProcess.spawn("ffmpeg", ["-version"]);
 
-	ffmpegConvertProcess.stdout
+	ffmpegProcess.stdout
 		.pipe(new LineTransformStream(line => {
 			// console.log(line);
 
 			const versionIndex = line.toLowerCase().indexOf("ffmpeg version");
-			if (versionIndex >= 0) version = line.substring(versionIndex + 1 + "ffmpeg version".length).split(" ")[0].trim();
+			if (versionIndex >= 0) {
+				try {
+					version = line.substring(versionIndex + 1 + "ffmpeg version".length).split(" ")[0].trim();
+				} catch (_) {
+				}
+			}
 
 			return line;
 		}));
 
-	ffmpegConvertProcess.stderr
+	ffmpegProcess.stderr
 		.pipe(new LineTransformStream(line => {
 			// console.log(line);
 
@@ -29,17 +35,12 @@ export async function getVersion() {
 		}));
 
 	await new Promise((resolve, reject) => {
-		ffmpegConvertProcess.once("exit", () => resolve(version));
-		ffmpegConvertProcess.once("error", reject);
+		ffmpegProcess.once("exit", () => version ? resolve(version) : reject(new Error("Bad version")));
+		ffmpegProcess.once("error", reject);
 	});
 }
 
-// return format.approximateDuration.asMinutes() < 40
-// 	? this.getAudioStream()
-// 	: this.downloadAudioParts();
-
 // -i pipe:0 -c copy -map 0:a:0 -f adts pipe:1 -- extract aac audio from mp4 video
-// -i pipe:0 -c copy -map 0:a:0 -f adts -f segment -segment_time 30 "out_%03d.aac"  -- extract aac audio segments with 30 sec length from mp4 video, only to files
 // -i pipe:0 -b:a 128k -f mp3 pipe:1 -- extract audio channel to mp3
 
 export function getExtractAACAudioFromMP4VideoStream(videoStream, { start, finish }) {
@@ -50,9 +51,9 @@ export function getExtractAACAudioFromMP4VideoStream(videoStream, { start, finis
 	if (finish) args.push("-t", dayjs.duration(finish - start).asSeconds().toString());
 	args.push("pipe:1");
 
-	const ffmpegConvertProcess = childProcess.spawn("ffmpeg", args);
+	const ffmpegProcess = childProcess.spawn("ffmpeg", args);
 
-	ffmpegConvertProcess.stderr
+	ffmpegProcess.stderr
 		.pipe(new LineTransformStream(line => {
 			// console.log(line);
 
@@ -61,12 +62,21 @@ export function getExtractAACAudioFromMP4VideoStream(videoStream, { start, finis
 			return line;
 		}));
 
-	videoStream.pipe(ffmpegConvertProcess.stdin);
+	videoStream
+		.pipe(new stream.PassThrough()
+			.on("data", chunk => {
 
-	return ffmpegConvertProcess.stdout;
+			})
+		)
+		.pipe(ffmpegProcess.stdin);
+
+
+	ffmpegProcess.on('exit', (code) => {
+		// console.error(`Child process exited with code ${code}`);
+	});
+	ffmpegProcess.stdin.on("finish", () => {
+
+	})
+
+	return ffmpegProcess.stdout;
 }
-
-// async downloadAudioParts() {
-// 	const outputFilePath = path.resolve("userData", `${filenamify(videoName)}.${fileExtension}`);
-// 	fs.ensureDirSync(path.dirname(outputFilePath));
-// }
