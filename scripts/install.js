@@ -9,7 +9,7 @@ const currentScriptDirname = path.dirname(url.fileURLToPath(import.meta.url));
 
 fs.writeFileSync(batFilePath, `
 @echo off
-node "${path.resolve(currentScriptDirname, "..", "startLocalDownloader.js")}" %*
+node "${path.resolve(currentScriptDirname, "..", "start.js")}" %*
 `);
 
 console.log(`${batFilePath} created`);

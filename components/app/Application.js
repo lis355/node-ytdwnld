@@ -1,6 +1,4 @@
-import path from "node:path";
-
-import fs from "fs-extra";
+import info from "../../package.json" with { type: "json" };
 
 export default class Application {
 	constructor() {
@@ -17,7 +15,7 @@ export default class Application {
 		this.onUncaughtException = defaultErrorHandler;
 		this.onUnhandledRejection = defaultErrorHandler;
 
-		this.info = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json")));
+		this.info = info;
 
 		this.components = [];
 	}

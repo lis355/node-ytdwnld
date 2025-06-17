@@ -20,7 +20,9 @@ import progressPassThroughStream from "./utils/progressPassThroughStream.js";
 import YouTubeVideoInfoDownloader from "./components/downloaders/YouTubeVideoInfoDownloader.js";
 import YouTubeVideoInfoProvider from "./components/downloaders/InnertubeYouTubeVideoInfoProvider.js";
 
-dotenv();
+dotenv({
+	path: import.meta.dirname
+});
 
 const isDevelopment = process.env.VSCODE_INJECTION &&
 	process.env.VSCODE_INSPECTOR_OPTIONS;
