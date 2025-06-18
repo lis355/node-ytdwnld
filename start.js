@@ -4,12 +4,14 @@ import stream from "node:stream";
 import streamPromises from "node:stream/promises";
 import streamСonsumers from "node:stream/consumers";
 
+import _ from "lodash";
 import { Command } from "commander";
 import { config as dotenv } from "dotenv-flow";
 import ansiEscapes from "ansi-escapes";
 import filenamify from "filenamify";
 import fs from "fs-extra";
 import ftp from "basic-ftp";
+import YAML from "yaml";
 
 import * as ffmpeg from "./utils/ffmpeg.js";
 import Application from "./components/app/Application.js";
@@ -129,28 +131,18 @@ class FtpUploader extends Uploader {
 	}
 }
 
+const BASE_CONFIG = {
+	outputDirectory: ""
+};
+
 class App extends Application {
 	constructor() {
 		super();
 
-		this.addComponent(this.youTubeVideoInfoProvider = new YouTubeVideoInfoProvider());
-		this.addComponent(this.youTubeVideoInfoDownloader = new YouTubeVideoInfoDownloader());
-	}
-
-	async initialize() {
 		this.printLogo();
 
-		try {
-			await ffmpeg.getVersion();
-		} catch (error) {
-			console.log("ffmpeg error:", error.message);
-
-			return process.exit();
-		}
-
-		this.userDataDirectory = path.resolve(import.meta.dirname, "userData");
-
-		await super.initialize();
+		this.addComponent(this.youTubeVideoInfoProvider = new YouTubeVideoInfoProvider());
+		this.addComponent(this.youTubeVideoInfoDownloader = new YouTubeVideoInfoDownloader());
 	}
 
 	printLogo() {
@@ -166,29 +158,67 @@ class App extends Application {
 		console.log(logo);
 	}
 
+	get isDevelopment() {
+		return isDevelopment;
+	}
+
+	async initialize() {
+		this.createUserDataDirectory();
+		this.createConfig();
+
+		await this.checkFfmpeg();
+
+		await super.initialize();
+	}
+
+	createUserDataDirectory() {
+		this.userDataDirectory = this.isDevelopment
+			? path.resolve(import.meta.dirname, "userData")
+			: path.resolve(process.env.APPDATA, filenamify(this.info.name));
+
+		fs.ensureDirSync(this.userDataDirectory);
+	}
+
+	createConfig() {
+		this.configPath = path.resolve(this.userDataDirectory, "config.yaml");
+
+		let userConfig;
+		if (fs.existsSync(this.configPath)) {
+			try {
+				userConfig = YAML.parse(fs.readFileSync(this.configPath).toString());
+			} catch (error) {
+				console.error(`Error in reading config file: ${this.configPath}, please, edit or remove it`);
+
+				return process.exit();
+			}
+		}
+
+		this.config = _.merge({}, BASE_CONFIG, userConfig);
+
+		if (!userConfig) fs.outputFileSync(this.configPath, YAML.stringify(this.config));
+	}
+
+	async checkFfmpeg() {
+		try {
+			await ffmpeg.getVersion();
+		} catch (error) {
+			console.log("ffmpeg error:", error.message);
+
+			return process.exit();
+		}
+	}
+
 	async run() {
 		await super.run();
 
 		if (isDevelopment) console.warn("[isDevelopment]");
-		console.log(`[Application directory]: ${import.meta.dirname}`);
-		console.log("[Config]:");
-		console.log(`[OUTPUT_DIRECTORY]: ${process.env.OUTPUT_DIRECTORY}`);
+		console.log(`[userDataDirectory]: ${this.userDataDirectory}`);
+		console.log(`[config]: ${this.configPath}`);
+		console.log(`[config.outputDirectory]: ${this.config.outputDirectory}`);
+	}
 
-		const program = new Command();
-
-		program
-			.name(this.info.name)
-			.version(this.info.version)
-			.description("Application to download youtube videos as audio and upload/save to FTP/Telegram/Filesystem")
-			.argument("<videoIds...>", "youtube video urls or IDs comma separated");
-		// .option("-a, --audio", "Download AAC audio", true)
-		// .option("-s, --subs", "Download subtitles", false)
-		// .option("-c, --chapters", "Split to chapters")
-		// .option("-t --telegram", "Upload to telegram bot")
-
-		program.parse(isDevelopment ? [...process.argv.slice(0, 2), ...(process.env.DEVELOPMENT_ARGS || "").split(" ").map(s => s.trim()).filter(Boolean)] : undefined);
-
-		const youTubeIds = Array.from(new Set(program.args.map(arg => arg.split(",")).flat().map(s => s.trim()).filter(Boolean)))
+	async processYouTubeIds(args) {
+		const youTubeIds = Array.from(new Set(args.map(arg => arg.split(",")).flat().map(s => s.trim()).filter(Boolean)))
 			.map(videoUrlOrId => this.youTubeVideoInfoProvider.parseVideoId(videoUrlOrId));
 
 		console.log(`Total ${youTubeIds.length} videos: ${youTubeIds.join(", ")}`);
@@ -234,7 +264,8 @@ class App extends Application {
 			asyncDataGetter: async youTubeId => {
 				const mediaDownloadingProgressStream = progressPassThroughStream({
 					dataLength: mediaStreamInfo.size,
-					onStart: () => { console.log(`Downloading ${mediaStreamInfo.type}`); }
+					onStart: () => { console.log(`Downloading ${mediaStreamInfo.type}`); },
+					onFinish: () => { process.stdout.write(ansiEscapes.eraseLines(3)); }
 				});
 
 				const mediaStream = mediaDownloadingStream.pipe(mediaDownloadingProgressStream);
@@ -295,13 +326,15 @@ class App extends Application {
 	async createUploader() {
 		this.uploader = null;
 
+		if (!this.config.outputDirectory) throw new Error("None outputDirectory, set it in config");
+
 		try {
-			const outputDirectoryUrl = new URL(process.env.OUTPUT_DIRECTORY);
+			const outputDirectoryUrl = new URL(this.config.outputDirectory);
 			if (outputDirectoryUrl.protocol.toLowerCase() === "ftp:") this.uploader = new FtpUploader(outputDirectoryUrl);
 		} catch (_) {
 		}
 
-		if (!this.uploader) this.uploader = new FileSystemUploader(process.env.OUTPUT_DIRECTORY);
+		if (!this.uploader) this.uploader = new FileSystemUploader(this.config.outputDirectory);
 
 		console.log(`Using ${this.uploader.constructor.name} uploader`);
 		console.log(`${this.uploader.constructor.name} uploader initializing`);
@@ -311,8 +344,43 @@ class App extends Application {
 	}
 }
 
-(async () => {
-	const application = new App();
-	await application.initialize();
-	await application.run();
-})();
+const application = new App();
+
+const program = new Command();
+program
+	.name(application.info.name)
+	.version(application.info.version)
+	.description("Application to download youtube videos as audio and upload/save to FTP/Telegram/Filesystem")
+	.argument("<videoIds...>", "youtube video urls or IDs comma separated")
+	// .option("-a, --audio", "Download AAC audio", true)
+	// .option("-s, --subs", "Download subtitles", false)
+	// .option("-c, --chapters", "Split to chapters")
+	// .option("-t --telegram", "Upload to telegram bot")
+	.action(async (name, options, command) => {
+		await application.initialize();
+		await application.run();
+
+		if (command.args.length > 0 &&
+			command.args[0] === "config") {
+			const process = childProcess.spawn("explorer.exe", [application.configPath]);
+
+			await new Promise(resolve => process.once("exit", resolve));
+		} else {
+			await application.processYouTubeIds(command.args);
+		}
+
+		return process.exit();
+	})
+	.command("help")
+	.action(() => {
+		program.help();
+	});
+
+program.showHelpAfterError();
+
+program
+	.parse(
+		isDevelopment
+			? [...process.argv.slice(0, 2), ...(process.env.DEVELOPMENT_ARGS || "").split(" ").map(s => s.trim()).filter(Boolean)]
+			: undefined
+	);

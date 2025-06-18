@@ -15,30 +15,30 @@
 			"console": "integratedTerminal",
 			"outputCapture": "std",
 			"cwd": "${workspaceFolder}"
-		},
-		{
-			"name": "service-windows-install",
-			"type": "node",
-			"request": "launch",
-			"skipFiles": [
-				"<node_internals>/**"
-			],
-			"program": "${workspaceFolder}/service/windows/serviceInstall.js",
-			"cwd": "${workspaceFolder}/service/windows/",
-			"console": "integratedTerminal",
-			"outputCapture": "std"
-		},
-		{
-			"name": "service-windows-uninstall",
-			"type": "node",
-			"request": "launch",
-			"skipFiles": [
-				"<node_internals>/**"
-			],
-			"program": "${workspaceFolder}/service/windows/serviceUninstall.js",
-			"cwd": "${workspaceFolder}/service/windows/",
-			"console": "integratedTerminal",
-			"outputCapture": "std"
 		}
+		// {
+		// 	"name": "service-windows-install",
+		// 	"type": "node",
+		// 	"request": "launch",
+		// 	"skipFiles": [
+		// 		"<node_internals>/**"
+		// 	],
+		// 	"program": "${workspaceFolder}/service/windows/serviceInstall.js",
+		// 	"cwd": "${workspaceFolder}/service/windows/",
+		// 	"console": "integratedTerminal",
+		// 	"outputCapture": "std"
+		// },
+		// {
+		// 	"name": "service-windows-uninstall",
+		// 	"type": "node",
+		// 	"request": "launch",
+		// 	"skipFiles": [
+		// 		"<node_internals>/**"
+		// 	],
+		// 	"program": "${workspaceFolder}/service/windows/serviceUninstall.js",
+		// 	"cwd": "${workspaceFolder}/service/windows/",
+		// 	"console": "integratedTerminal",
+		// 	"outputCapture": "std"
+		// }
 	]
 }
