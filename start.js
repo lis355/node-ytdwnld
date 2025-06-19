@@ -350,7 +350,7 @@ const program = new Command();
 program
 	.name(application.info.name)
 	.version(application.info.version)
-	.description("Application to download youtube videos as audio and upload/save to FTP/Telegram/Filesystem")
+	.description("Application to download youtube videos as audio and upload/save to Filesystem/FTP")
 	.argument("<videoIds...>", "youtube video urls or IDs comma separated")
 	// .option("-a, --audio", "Download AAC audio", true)
 	// .option("-s, --subs", "Download subtitles", false)
