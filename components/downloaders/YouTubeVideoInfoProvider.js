@@ -12,7 +12,7 @@ export default class YouTubeVideoInfoProvider extends ApplicationComponent {
 		return videoId;
 	}
 
-	async getVideoInfo(videoId) {
-		throw new Error("Not implemented");
-	}
+	async getVideoInfo(videoId) { throw new Error("Not implemented"); }
+	async getMediaStreamInfo(videoInfo, options) { throw new Error("Not implemented"); }
+	async getMediaStream(videoInfo, options) { throw new Error("Not implemented"); }
 }

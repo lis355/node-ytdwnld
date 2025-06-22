@@ -1,7 +1,6 @@
 import childProcess from "node:child_process";
 import path from "node:path";
 import stream from "node:stream";
-import streamPromises from "node:stream/promises";
 import streamСonsumers from "node:stream/consumers";
 
 import _ from "lodash";
@@ -10,16 +9,15 @@ import { config as dotenv } from "dotenv-flow";
 import ansiEscapes from "ansi-escapes";
 import filenamify from "filenamify";
 import fs from "fs-extra";
-import ftp from "basic-ftp";
 import YAML from "yaml";
 
-import * as ffmpeg from "./utils/ffmpeg.js";
 import Application from "./components/app/Application.js";
+import cacheData from "./utils/cacheData.js";
 import dayjs from "./utils/dayjs.js";
-import hash from "./utils/hash.js";
+import FFMpegManager from "./components/FFMpegManager.js";
 import ProgressBar from "./utils/ProgressBar.js";
 import progressPassThroughStream from "./utils/progressPassThroughStream.js";
-import YouTubeVideoInfoDownloader from "./components/downloaders/YouTubeVideoInfoDownloader.js";
+import UploadManager from "./components/uploaders/UploadManager.js";
 import YouTubeVideoInfoProvider from "./components/downloaders/InnertubeYouTubeVideoInfoProvider.js";
 
 dotenv({
@@ -28,108 +26,6 @@ dotenv({
 
 const isDevelopment = process.env.VSCODE_INJECTION &&
 	process.env.VSCODE_INSPECTOR_OPTIONS;
-
-async function cacheData({ dataInfo, cacheDirectory, isUseCache, asyncDataGetter }) {
-	let data;
-	let dataFileCachePath;
-
-	if (isUseCache) {
-		dataFileCachePath = path.resolve(cacheDirectory, `${hash(dataInfo)}.cache.data`);
-		if (fs.existsSync(dataFileCachePath)) data = fs.readFileSync(path.resolve(dataFileCachePath));
-	}
-
-	if (!data) {
-		data = await asyncDataGetter(dataInfo);
-
-		if (isUseCache) fs.outputFileSync(dataFileCachePath, data);
-	}
-
-	return data;
-}
-
-class Uploader {
-	async initialize() { }
-	async destroy() { }
-
-	async createBaseDirectory(localDirectoryPath) { }
-	async uploadFileStream(fileName, readableStream) { }
-	async openBaseDirectoryInExplorer() { }
-}
-
-class FileSystemUploader extends Uploader {
-	constructor(baseDirectory) {
-		super();
-
-		this.baseDirectory = baseDirectory;
-	}
-
-	async createBaseDirectory(localDirectoryPath) {
-		this.baseDirectory = path.resolve(this.baseDirectory, localDirectoryPath);
-		fs.ensureDirSync(this.baseDirectory);
-	}
-
-	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
-		const outputFileStream = fs.createWriteStream(path.resolve(this.baseDirectory, fileName));
-
-		await streamPromises.finished(readableStream.pipe(outputFileStream));
-	}
-
-	async openBaseDirectoryInExplorer() {
-		childProcess.spawn("explorer.exe", [this.baseDirectory]);
-	}
-}
-
-class FtpUploader extends Uploader {
-	constructor(baseUrl) {
-		super();
-
-		this.baseUrl = baseUrl;
-	}
-
-	async initialize() {
-		this.client = new ftp.Client();
-
-		// client.ftp.verbose = true;
-
-		await this.client.access({
-			host: this.baseUrl.hostname,
-			port: Number(this.baseUrl.port)
-		});
-	}
-
-	async destroy() {
-		this.client.close();
-
-		this.client = null;
-	}
-
-	async createBaseDirectory(localDirectoryPath) {
-		this.baseDirectory = this.baseUrl.pathname + "/" + localDirectoryPath;
-
-		await this.client.ensureDir(this.baseDirectory);
-		await this.client.cd("/");
-	}
-
-	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
-		this.client.trackProgress(null);
-
-		try {
-			if (onUploadUpdate) {
-				this.client.trackProgress(info => {
-					onUploadUpdate(info.bytes);
-				});
-			}
-
-			await this.client.uploadFrom(readableStream, this.baseDirectory + "/" + fileName);
-		} finally {
-			this.client.trackProgress(null);
-		}
-	}
-
-	async openBaseDirectoryInExplorer() {
-		childProcess.spawn("explorer.exe", [this.baseUrl.origin + this.baseDirectory]);
-	}
-}
 
 const BASE_CONFIG = {
 	outputDirectory: ""
@@ -141,8 +37,9 @@ class App extends Application {
 
 		this.printLogo();
 
+		this.addComponent(this.ffmpegManager = new FFMpegManager());
 		this.addComponent(this.youTubeVideoInfoProvider = new YouTubeVideoInfoProvider());
-		this.addComponent(this.youTubeVideoInfoDownloader = new YouTubeVideoInfoDownloader());
+		this.addComponent(this.uploadManager = new UploadManager());
 	}
 
 	printLogo() {
@@ -165,8 +62,6 @@ class App extends Application {
 	async initialize() {
 		this.createUserDataDirectory();
 		this.createConfig();
-
-		await this.checkFfmpeg();
 
 		await super.initialize();
 	}
@@ -198,16 +93,6 @@ class App extends Application {
 		if (!userConfig) fs.outputFileSync(this.configPath, YAML.stringify(this.config));
 	}
 
-	async checkFfmpeg() {
-		try {
-			await ffmpeg.getVersion();
-		} catch (error) {
-			console.log("ffmpeg error:", error.message);
-
-			return process.exit();
-		}
-	}
-
 	async run() {
 		await super.run();
 
@@ -223,7 +108,7 @@ class App extends Application {
 
 		console.log(`Total ${youTubeIds.length} videos: ${youTubeIds.join(", ")}`);
 
-		await this.createUploader();
+		await this.uploadManager.createUploader();
 
 		for (let i = 0; i < youTubeIds.length; i++) {
 			const youTubeId = youTubeIds[i];
@@ -233,7 +118,7 @@ class App extends Application {
 			console.log(`Finish processing ${youTubeId}`);
 		}
 
-		await this.uploader.destroy();
+		await this.uploadManager.destroyUploader();
 	}
 
 	async processYouTubeId(youTubeId) {
@@ -257,11 +142,19 @@ class App extends Application {
 		const mediaStreamInfo = await this.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
 		const mediaDownloadingStream = await this.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
 
+		// download video
+		// await streamPromises.finished(
+		// 	mediaDownloadingStream.pipe(
+		// 		fs.createWriteStream(path.resolve(this.config.outputDirectory, filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}.mp4`))
+		// 		))
+		// );
+
 		const mediaBuffer = await cacheData({
-			dataInfo: youTubeId,
-			cacheDirectory: path.resolve(this.userDataDirectory, "videoCache"),
 			isUseCache: isDevelopment,
-			asyncDataGetter: async youTubeId => {
+			cacheDirectory: path.resolve(this.userDataDirectory, "videoCache"),
+			cacheFileName: `${youTubeId}.mp4`,
+			dataInfo: youTubeId,
+			asyncDataGetter: async dataInfo => {
 				const mediaDownloadingProgressStream = progressPassThroughStream({
 					dataLength: mediaStreamInfo.size,
 					onStart: () => { console.log(`Downloading ${mediaStreamInfo.type}`); },
@@ -274,7 +167,7 @@ class App extends Application {
 			}
 		});
 
-		await this.uploader.createBaseDirectory(filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 }));
+		await this.uploadManager.createBaseDirectory(filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 }));
 
 		const parts = [];
 
@@ -293,54 +186,33 @@ class App extends Application {
 		for (let i = 0; i < parts.length; i++) {
 			const part = parts[i];
 
-			const fileName = `${(i + 1).toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`;
-
 			const mediaStream = stream.Readable.from(mediaBuffer)
 				.pipe(
 					progressPassThroughStream({
 						dataLength: mediaBuffer.byteLength,
-						onStart: () => { console.log(`Extracting audio ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${fileName}`); },
+						onStart: () => { console.log(`Extracting audio ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${part.caption}`); },
 						onFinish: () => { process.stdout.write(ansiEscapes.eraseLines(3)); }
 					})
 				);
 
-			const audioStream = ffmpeg.getExtractAACAudioFromMP4VideoStream(mediaStream, { start: part.start, finish: part.finish });
+			const audioStream = this.ffmpegManager.getOGGAudioWithMetadataAndChaptersFromMP4VideoStream(mediaStream, { start: part.start, finish: part.finish });
 			const audioBuffer = await streamСonsumers.buffer(audioStream);
 
 			const uploadStream = stream.Readable.from(audioBuffer);
 
 			const uploadProgressBar = new ProgressBar(audioBuffer.byteLength);
 
-			console.log(`Uploading file ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${fileName}`);
+			console.log(`Uploading file ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${part.caption}`);
 			uploadProgressBar.start();
 
-			await this.uploader.uploadFileStream(fileName, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
+			const fileName = `${(i + 1).toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`;
+			await this.uploadManager.uploadFileStream(fileName, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
 
 			uploadProgressBar.finish();
 			process.stdout.write(ansiEscapes.eraseLines(3));
 		}
 
-		if (!isDevelopment) await this.uploader.openBaseDirectoryInExplorer();
-	}
-
-	async createUploader() {
-		this.uploader = null;
-
-		if (!this.config.outputDirectory) throw new Error("None outputDirectory, set it in config");
-
-		try {
-			const outputDirectoryUrl = new URL(this.config.outputDirectory);
-			if (outputDirectoryUrl.protocol.toLowerCase() === "ftp:") this.uploader = new FtpUploader(outputDirectoryUrl);
-		} catch (_) {
-		}
-
-		if (!this.uploader) this.uploader = new FileSystemUploader(this.config.outputDirectory);
-
-		console.log(`Using ${this.uploader.constructor.name} uploader`);
-		console.log(`${this.uploader.constructor.name} uploader initializing`);
-		await this.uploader.initialize();
-		console.log(`${this.uploader.constructor.name} uploader initialized`);
-		process.stdout.write(ansiEscapes.eraseLines(3));
+		if (!isDevelopment) await this.uploadManager.openBaseDirectoryInExplorer();
 	}
 }
 

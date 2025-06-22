@@ -1,11 +1,9 @@
-// import path from "node:path";
 import stream from "node:stream";
 
 import { BG, buildURL, GOOG_API_KEY, USER_AGENT } from "bgutils-js";
 import { Innertube, UniversalCache } from "youtubei.js";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { setParserErrorHandler as innertubeSetParserErrorHandler } from "../../node_modules/youtubei.js/dist/src/parser/parser.js";
-// import fs from "fs-extra";
 
 import dayjs from "../../utils/dayjs.js";
 import YouTubeVideoInfoProvider from "./YouTubeVideoInfoProvider.js";
@@ -23,8 +21,15 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 	async initialize() {
 		await super.initialize();
 
-		this.innertube = await this.createInnertube({ withPlayer: true, generateSessionLocally: true, userAgent });
-		await this.createIntegrityTokenBasedMinter();
+		try {
+			await this.createInnertube({ withPlayer: true, generateSessionLocally: true, userAgent });
+			await this.createIntegrityTokenBasedMinter();
+		} catch (error) {
+			console.log("Check acess to youtube.com (may be you need VPN or proxy)");
+			console.log("Innertube error:", error.message);
+
+			return process.exit();
+		}
 	}
 
 	async createInnertube({
@@ -35,7 +40,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 		clientType = undefined
 		// generateSessionLocally = true
 	} = {}) {
-		return Innertube.create({
+		this.innertube = await Innertube.create({
 			"enable_session_cache": false,
 			"user_agent": navigator.userAgent,
 
@@ -273,7 +278,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 				return {
 					timing,
 					caption: line.substring(spaceIndex + 1)
-				}
+				};
 			})
 			.filter(Boolean);
 
