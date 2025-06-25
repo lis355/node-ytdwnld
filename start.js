@@ -2,6 +2,7 @@ import childProcess from "node:child_process";
 import path from "node:path";
 import stream from "node:stream";
 import streamСonsumers from "node:stream/consumers";
+// import streamPromises from "node:stream/promises";
 
 import _ from "lodash";
 import { Command } from "commander";
@@ -123,7 +124,6 @@ class App extends Application {
 
 	async processYouTubeId(youTubeId) {
 		const youTubeVideoInfo = await this.youTubeVideoInfoProvider.getVideoInfo(youTubeId);
-		console.log(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`);
 
 		// fs.outputFileSync(path.resolve(this.userDataDirectory, "youTubeVideoInfo.json"), JSON.stringify(youTubeVideoInfo, null, "\t"));
 		// const youTubeVideoInfo = JSON.parse(fs.readFileSync(path.resolve(this.userDataDirectory, "youTubeVideoInfo.json")).toString());
@@ -140,6 +140,8 @@ class App extends Application {
 		// };
 
 		const mediaStreamInfo = await this.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
+		console.log(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} (${dayjs.duration(mediaStreamInfo["approx_duration_ms"]).format("HH:mm:ss")})`);
+
 		const mediaDownloadingStream = await this.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
 
 		// download video
@@ -195,8 +197,10 @@ class App extends Application {
 					})
 				);
 
-			const audioStream = this.ffmpegManager.getOGGAudioWithMetadataAndChaptersFromMP4VideoStream(mediaStream, { start: part.start, finish: part.finish });
+			const audioStream = this.ffmpegManager.getExtractAACAudioFromMP4VideoStream(mediaStream, { start: part.start, finish: part.finish });
 			const audioBuffer = await streamСonsumers.buffer(audioStream);
+
+			// fs.outputFileSync(path.resolve(this.userDataDirectory, "test.aac"), audioBuffer);
 
 			const uploadStream = stream.Readable.from(audioBuffer);
 
