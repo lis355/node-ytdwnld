@@ -72,7 +72,7 @@ class FtpUploader extends Uploader {
 	}
 
 	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
-		this.client.trackProgress(null);
+		this.client.trackProgress(undefined);
 
 		try {
 			if (onUploadUpdate) {
@@ -83,7 +83,7 @@ class FtpUploader extends Uploader {
 
 			await this.client.uploadFrom(readableStream, this.baseDirectory + "/" + fileName);
 		} finally {
-			this.client.trackProgress(null);
+			this.client.trackProgress(undefined);
 		}
 	}
 

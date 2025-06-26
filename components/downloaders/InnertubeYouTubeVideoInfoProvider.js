@@ -1,12 +1,17 @@
+// import path from "node:path";
 import stream from "node:stream";
 
-import { BG, buildURL, GOOG_API_KEY, USER_AGENT } from "bgutils-js";
 import { Innertube, UniversalCache } from "youtubei.js";
-import { JSDOM, VirtualConsole } from "jsdom";
 import { setParserErrorHandler as innertubeSetParserErrorHandler } from "../../node_modules/youtubei.js/dist/src/parser/parser.js";
+import * as innertubeConstants from "../../node_modules/youtubei.js/dist/src/utils/Constants.js";
 
+import { BG, buildURL, GOOG_API_KEY, USER_AGENT } from "bgutils-js";
+import { JSDOM, VirtualConsole } from "jsdom";
+// import fs from "fs-extra";
+import getYouTubeID from "get-youtube-id";
+
+import ApplicationComponent from "../app/ApplicationComponent.js";
 import dayjs from "../../utils/dayjs.js";
-import YouTubeVideoInfoProvider from "./YouTubeVideoInfoProvider.js";
 
 // https://github.com/LuanRT/BgUtils/blob/main/examples/node/innertube-challenge-fetcher-example.ts
 
@@ -17,7 +22,7 @@ innertubeSetParserErrorHandler(error => {
 	// console.error(error);
 });
 
-export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoProvider {
+export default class InnertubeYouTubeVideoInfoProvider extends ApplicationComponent {
 	async initialize() {
 		await super.initialize();
 
@@ -130,6 +135,15 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 		return { contentPoToken, sessionPoToken };
 	}
 
+	parseVideoId(text) {
+		if (/^[^#\&\?]{11}$/.test(text)) return text;
+
+		const videoId = getYouTubeID((text || "").trim());
+		if (!videoId) throw new Error("Bad url or text");
+
+		return videoId;
+	}
+
 	async getVideoInfo(videoId) {
 		const { contentPoToken, sessionPoToken } = await this.generatePoTokens(videoId);
 
@@ -234,12 +248,14 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 
 		const videoInfo = {
 			meta: {
-				info
+				info,
+				mwebInfo
 			},
 
 			id,
 			author,
 			title,
+
 			formats: [...info["streaming_data"].formats, ...info["streaming_data"]["adaptive_formats"]].map(format => ({
 				type: format["has_video"] ? "video" : "audio",
 				quality: format["quality_label"],
@@ -254,9 +270,15 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 
 		if (info.captions &&
 			info.captions["caption_tracks"] &&
-			info.captions["caption_tracks"][0]) videoInfo.subtitles = {
-				url: info.captions["caption_tracks"][0]["base_url"]
+			info.captions["caption_tracks"][0]) {
+
+			const captionsUrl = new URL(info.captions["caption_tracks"][0]["base_url"]);
+			captionsUrl.searchParams.set("fmt", "srt");
+
+			videoInfo.subtitles = {
+				url: captionsUrl.href
 			};
+		}
 
 		videoInfo.timings = info["basic_info"]["short_description"]
 			.split("\n")
@@ -317,5 +339,18 @@ export default class InnertubeYouTubeVideoInfoProvider extends YouTubeVideoInfoP
 
 	async getMediaStream(videoInfo, options) {
 		return stream.Readable.fromWeb(await videoInfo.meta.info.download(options));
+	}
+
+	async getSubtitlesStream(videoInfo) {
+		const response = await videoInfo.meta.info.actions.session.http.fetch_function(videoInfo.subtitles.url, {
+			method: "GET",
+			headers: innertubeConstants.STREAM_HEADERS,
+			redirect: "follow"
+		});
+
+		if (!response.ok ||
+			!response.body) throw new Error("Can't get subtitles");
+
+		return stream.Readable.fromWeb(response.body);
 	}
 }

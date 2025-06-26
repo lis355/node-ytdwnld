@@ -10,6 +10,7 @@ import { config as dotenv } from "dotenv-flow";
 import ansiEscapes from "ansi-escapes";
 import filenamify from "filenamify";
 import fs from "fs-extra";
+import srtParser2 from "srt-parser-2";
 import YAML from "yaml";
 
 import Application from "./components/app/Application.js";
@@ -169,35 +170,36 @@ class App extends Application {
 			}
 		});
 
-		await this.uploadManager.createBaseDirectory(filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 }));
+		const mediaDirectoryName = filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 });
+		await this.uploadManager.createBaseDirectory(mediaDirectoryName);
 
-		const parts = [];
+		const chapters = [];
 
-		if (youTubeVideoInfo.timings.length === 0) parts.push({ caption: youTubeVideoInfo.title });
-		else if (youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) parts.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
+		if (youTubeVideoInfo.timings.length === 0) chapters.push({ caption: youTubeVideoInfo.title });
+		else if (youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) chapters.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
 
 		for (let i = 0; i < youTubeVideoInfo.timings.length; i++) {
 			const timing = youTubeVideoInfo.timings[i];
 			const nextTiming = i !== youTubeVideoInfo.timings.length - 1 ? youTubeVideoInfo.timings[i + 1] : null;
-			parts.push({ start: timing.timing, finish: nextTiming?.timing, caption: timing.caption });
+			chapters.push({ start: timing.timing, finish: nextTiming?.timing, caption: timing.caption });
 		}
 
 		console.log("Chapters:");
-		for (let i = 0; i < parts.length; i++) 	console.log(`${(i + 1).toString().padStart(3, "0")} - ${parts[i].caption}`);
+		for (let i = 0; i < chapters.length; i++) 	console.log(`${(i + 1).toString().padStart(3, "0")} - ${chapters[i].caption}`);
 
-		for (let i = 0; i < parts.length; i++) {
-			const part = parts[i];
+		for (let i = 0; i < chapters.length; i++) {
+			const chapter = chapters[i];
 
 			const mediaStream = stream.Readable.from(mediaBuffer)
 				.pipe(
 					progressPassThroughStream({
 						dataLength: mediaBuffer.byteLength,
-						onStart: () => { console.log(`Extracting audio ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${part.caption}`); },
+						onStart: () => { console.log(`Extracting audio ${(i + 1).toString().padStart(3, "0")}/${chapters.length.toString().padStart(3, "0")} ${chapter.caption}`); },
 						onFinish: () => { process.stdout.write(ansiEscapes.eraseLines(3)); }
 					})
 				);
 
-			const audioStream = this.ffmpegManager.getExtractAACAudioFromMP4VideoStream(mediaStream, { start: part.start, finish: part.finish });
+			const audioStream = this.ffmpegManager.getExtractAACAudioFromMP4VideoStream(mediaStream, { start: chapter.start, finish: chapter.finish });
 			const audioBuffer = await streamСonsumers.buffer(audioStream);
 
 			// fs.outputFileSync(path.resolve(this.userDataDirectory, "test.aac"), audioBuffer);
@@ -206,17 +208,64 @@ class App extends Application {
 
 			const uploadProgressBar = new ProgressBar(audioBuffer.byteLength);
 
-			console.log(`Uploading file ${(i + 1).toString().padStart(3, "0")}/${parts.length.toString().padStart(3, "0")} ${part.caption}`);
+			console.log(`Uploading file ${(i + 1).toString().padStart(3, "0")}/${chapters.length.toString().padStart(3, "0")} ${chapter.caption}`);
 			uploadProgressBar.start();
 
-			const fileName = `${(i + 1).toString().padStart(3, "0")} - ${filenamify(part.caption, { replacement: "_" })}.aac`;
+			const fileName = `${(i + 1).toString().padStart(3, "0")} - ${filenamify(chapter.caption, { replacement: "_" })}.aac`;
 			await this.uploadManager.uploadFileStream(fileName, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
 
 			uploadProgressBar.finish();
 			process.stdout.write(ansiEscapes.eraseLines(3));
 		}
 
+		await this.uploadManager.uploadFileStream("info.json", stream.Readable.from(JSON.stringify({
+			id: youTubeVideoInfo.id,
+			link: "https://www.youtube.com/watch?v=" + youTubeVideoInfo.id,
+			channel: _.get(youTubeVideoInfo, "meta.info.basic_info.channel.name"),
+			channelLink: _.get(youTubeVideoInfo, "meta.info.basic_info.channel.url"),
+			author: youTubeVideoInfo.author,
+			title: youTubeVideoInfo.title,
+			duration: dayjs.duration(mediaStreamInfo["approx_duration_ms"]).format("HH:mm:ss")
+		}, null, "\t")));
+
+		if (youTubeVideoInfo.subtitles) {
+			console.log("Downloading subtitles");
+
+			const subtitlesStream = await this.youTubeVideoInfoProvider.getSubtitlesStream(youTubeVideoInfo);
+			const subtitlesBuffer = await streamСonsumers.buffer(subtitlesStream);
+			await this.uploadManager.uploadFileStream(`${mediaDirectoryName}.srt`, stream.Readable.from(subtitlesBuffer));
+
+			const subtitles = new srtParser2().fromSrt(subtitlesBuffer.toString());
+			await this.uploadManager.uploadFileStream(`${mediaDirectoryName}.txt`, stream.Readable.from(this.getSubtitlesFormattedText(subtitles, chapters)));
+
+			console.log("Done");
+		}
+
 		if (!isDevelopment) await this.uploadManager.openBaseDirectoryInExplorer();
+	}
+
+	getSubtitlesFormattedText(subtitles, chapters) {
+		// TODO сделать нормально https://github.com/lis355/node-ytdwnld/issues/9
+
+		const parts = [];
+
+		let nextChapterIndex = 0;
+
+		for (const subtitle of subtitles) {
+			if (nextChapterIndex < chapters.length) {
+				const nextChapter = chapters[nextChapterIndex];
+				if (dayjs.duration({ seconds: subtitle.endSeconds }) > nextChapter.start) {
+					// TODO не разрывать предложения
+					parts.push(`\n\n${dayjs.duration(nextChapter.start.asMilliseconds()).format("HH:mm:ss")} ${(nextChapterIndex + 1).toString().padStart(3, "0")}/${chapters.length.toString().padStart(3, "0")} ${nextChapter.caption}\n\n`);
+
+					nextChapterIndex++;
+				}
+			}
+
+			parts.push(subtitle.text + " ");
+		}
+
+		return parts.join("").trim();
 	}
 }
 
