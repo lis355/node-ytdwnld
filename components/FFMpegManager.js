@@ -19,9 +19,11 @@ export default class FFMpegManager extends ApplicationComponent {
 	}
 
 	createFFMpegProcess(args) {
-		if (this.application.isDevelopment) console.log("[FFMpegManager]:", "ffmpeg", args);
+		const cmd = `ffmpeg -hide_banner ${args}`;
 
-		const ffmpegProcess = childProcess.spawn("ffmpeg", args.split(" "));
+		// console.log("[FFMpegManager]:", cmd);
+
+		const ffmpegProcess = childProcess.exec(cmd);
 
 		ffmpegProcess.stderr
 			.pipe(new LineTransformStream(line => {
@@ -61,48 +63,12 @@ export default class FFMpegManager extends ApplicationComponent {
 		});
 	}
 
-	getExtractAACAudioFromMP4VideoStream(videoStream, { start, finish }) {
-		// -i pipe:0 -c copy -map 0:a:0 -f adts pipe:1 -- extract aac audio from mp4 video
+	async extractAACAudioFromMP4VideoStream(videoFilePath, metadataFilePath, outputAudioFilePath) {
+		const ffmpegProcess = this.createFFMpegProcess(`-i "${videoFilePath}" -i "${metadataFilePath}" -map_metadata 1 -c copy -map 0:a:0 -f mp4 -y "${outputAudioFilePath}"`);
 
-		let args = "-i pipe:0 -c copy -map 0:a:0 -f adts";
-		if (start) args += ` -ss ${start.asSeconds().toString()}`;
-		if (finish) args += ` -t ${dayjs.duration(finish - start).asSeconds().toString()}`;
-		args += " pipe:1";
-
-		console.log("ffmpeg", args);
-
-		const ffmpegProcess = this.createFFMpegProcess(args);
-
-		videoStream
-			.pipe(ffmpegProcess.stdin);
-
-		return ffmpegProcess.stdout;
+		await new Promise((resolve, reject) => {
+			ffmpegProcess.once("exit", code => code === 0 ? resolve() : reject(new Error(code.toString())));
+			ffmpegProcess.once("error", reject);
+		});
 	}
-
-	// getOGGAudioWithMetadataAndChaptersFromMP4VideoStream(videoStream, author, title, chaptersInfo) {
-	// 	// ffmpeg -i pipe:0 -c:a libvorbis -q:a 4 -map 0:a:0 -f ogg -metadata:s:a:0 file=metadata.txt pipe:1
-
-	// 	const metadataFilePath = path.resolve(this.application.userDataDirectory, "metadata.txt");
-
-	// 	const metadataLines = [];
-
-	// 	// fs.outputFileSync(metadataFilePath, metadataLines.join(os.EOL));
-
-	// 	const cliArguments = new CLIArguments(
-	// 		"-i pipe:0",
-	// 		`-c:a libvorbis -b:a 192k -map 0:a:0 -f ogg -metadata:s:a:0 file="${metadataFilePath}"`,
-	// 		"pipe:1"
-	// 	);
-
-	// 	const ffmpegProcess = this.createFFMpegProcess(cliArguments);
-
-	// 	videoStream
-	// 		.pipe(ffmpegProcess.stdin);
-
-	// 	ffmpegProcess.on("exit", (code) => {
-	// 		// fs.removeSync(metadataFilePath);
-	// 	});
-
-	// 	return ffmpegProcess.stdout;
-	// }
 };

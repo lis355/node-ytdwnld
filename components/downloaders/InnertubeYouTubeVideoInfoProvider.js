@@ -15,6 +15,10 @@ import dayjs from "../../utils/dayjs.js";
 
 // https://github.com/LuanRT/BgUtils/blob/main/examples/node/innertube-challenge-fetcher-example.ts
 
+function capitalize(str) {
+	return str.substring(0, 1).toUpperCase() + str.substring(1);
+}
+
 const userAgent = USER_AGENT;
 
 // HACK for hide parser warning message
@@ -297,9 +301,13 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 				else if (timeParts.length === 1) timing = dayjs.duration({ seconds: timeParts[0] });
 				else return null;
 
+				let caption = line.substring(spaceIndex + 1).trim();
+				while (caption.startsWith("-")) caption = caption.substring(1).trim();
+				caption = capitalize(caption);
+
 				return {
 					timing,
-					caption: line.substring(spaceIndex + 1)
+					caption
 				};
 			})
 			.filter(Boolean);
