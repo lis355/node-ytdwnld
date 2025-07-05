@@ -234,7 +234,8 @@ class App extends Application {
 			channelLink: _.get(youTubeVideoInfo, "meta.info.basic_info.channel.url"),
 			author: youTubeVideoInfo.author,
 			title: youTubeVideoInfo.title,
-			duration: mediaDuration.format("HH:mm:ss")
+			duration: mediaDuration.format("HH:mm:ss"),
+			chapters: chapters.map(chapter => `${chapter.start.format("HH:mm:ss")} - ${chapter.caption}`)
 		}, null, "\t")));
 
 		if (!isDevelopment) await this.uploadManager.openBaseDirectoryInExplorer();

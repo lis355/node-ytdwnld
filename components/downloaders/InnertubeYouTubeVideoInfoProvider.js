@@ -1,30 +1,34 @@
 import path from "node:path";
 import stream from "node:stream";
 
-import { Innertube, UniversalCache } from "youtubei.js";
-import { setParserErrorHandler as innertubeSetParserErrorHandler } from "../../node_modules/youtubei.js/dist/src/parser/parser.js";
-import * as innertubeConstants from "../../node_modules/youtubei.js/dist/src/utils/Constants.js";
-
-import { BG, buildURL, GOOG_API_KEY, USER_AGENT } from "bgutils-js";
-import { JSDOM, VirtualConsole } from "jsdom";
+// import { socksDispatcher } from "fetch-socks";
 // import fs from "fs-extra";
+import * as bgutils from "bgutils-js";
+import * as jsdom from "jsdom";
+import * as youtubei from "youtubei.js";
 import getYouTubeID from "get-youtube-id";
+import undici from "undici";
 
 import ApplicationComponent from "../app/ApplicationComponent.js";
 import dayjs from "../../utils/dayjs.js";
 
 // https://github.com/LuanRT/BgUtils/blob/main/examples/node/innertube-challenge-fetcher-example.ts
 
+// use for fetch overriding
+youtubei.Utils.Platform.shim.fetch = undici.fetch;
+youtubei.Utils.Platform.shim.Request = undici.Request;
+youtubei.Utils.Platform.shim.Response = undici.Response;
+
+// HACK for hide parser warning message
+youtubei.Parser.setParserErrorHandler(error => {
+	// console.error(error);
+});
+
 function capitalize(str) {
 	return str.substring(0, 1).toUpperCase() + str.substring(1);
 }
 
-const userAgent = USER_AGENT;
-
-// HACK for hide parser warning message
-innertubeSetParserErrorHandler(error => {
-	// console.error(error);
-});
+const userAgent = bgutils.USER_AGENT;
 
 export default class InnertubeYouTubeVideoInfoProvider extends ApplicationComponent {
 	async initialize() {
@@ -49,7 +53,21 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		clientType = undefined
 		// generateSessionLocally = true
 	} = {}) {
-		this.innertube = await Innertube.create({
+		// this.proxyAgent = new undici.ProxyAgent({
+		// 	uri: "socks5://localhost:1080"
+		// 	// token: `Basic ${Buffer.from(`${your_proxy_username}:${your_proxy_password}`).toString("base64")}`
+		// });
+
+		// this.proxyAgent = socksDispatcher({
+		// 	type: 5,
+		// 	host: "127.0.0.1",
+		// 	port: 1080
+
+		// 	//userId: "username",
+		// 	//password: "password",
+		// });
+
+		this.innertube = await youtubei.Innertube.create({
 			"enable_session_cache": false,
 			"user_agent": navigator.userAgent,
 
@@ -58,11 +76,18 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			"enable_safety_mode": safetyMode,
 			"client_type": clientType,
 
-			// fetch: (input, init) => fetch(input, init),
+			fetch: (input, init) => {
+				// console.log("[InnertubeYouTubeVideoInfoProvider] fetch:", input.url ? input.url.toString() : input.toString());
+
+				return undici.fetch(input, {
+					// dispatcher: this.proxyAgent,
+					...init
+				});
+			},
 
 			"user_agent": userAgent,
 
-			"cache": withPlayer ? new UniversalCache(false, path.resolve(this.application.userDataDirectory, "innertubeCache")) : undefined,
+			"cache": withPlayer ? new youtubei.UniversalCache(false, path.resolve(this.application.userDataDirectory, "innertubeCache")) : undefined,
 			"enable_session_cache": true,
 
 			"generate_session_locally": true
@@ -70,13 +95,13 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 	}
 
 	async createIntegrityTokenBasedMinter() {
-		const virtualConsole = new VirtualConsole();
+		const virtualConsole = new jsdom.VirtualConsole();
 		virtualConsole.on("error", () => { });
 		virtualConsole.on("warn", () => { });
 		virtualConsole.on("info", () => { });
 		virtualConsole.on("dir", () => { });
 
-		const dom = new JSDOM("<!DOCTYPE html><html lang=\"en\"><head><title></title></head><body></body></html>", {
+		const dom = new jsdom.JSDOM("<!DOCTYPE html><html lang=\"en\"><head><title></title></head><body></body></html>", {
 			url: "https://www.youtube.com/",
 			referrer: "https://www.youtube.com/",
 			userAgent,
@@ -97,14 +122,14 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		if (!challengeResponse.bg_challenge) throw new Error("Could not get challenge");
 
 		const interpreterUrl = challengeResponse.bg_challenge.interpreter_url.private_do_not_access_or_else_trusted_resource_url_wrapped_value;
-		const bgScriptResponse = await fetch(`https:${interpreterUrl}`);
+		const bgScriptResponse = await undici.fetch(`https:${interpreterUrl}`);
 		const interpreterJavascript = await bgScriptResponse.text();
 
 		if (interpreterJavascript) {
 			new Function(interpreterJavascript)();
 		} else throw new Error("Could not load VM");
 
-		const botguard = await BG.BotGuardClient.create({
+		const botguard = await bgutils.BG.BotGuardClient.create({
 			program: challengeResponse.bg_challenge.program,
 			globalName: challengeResponse.bg_challenge.global_name,
 			globalObj: globalThis
@@ -114,11 +139,11 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		const botguardResponse = await botguard.snapshot({ webPoSignalOutput });
 		const requestKey = "O43z0dpjhgX20SCx4KAo";
 
-		const integrityTokenResponse = await fetch(buildURL("GenerateIT", true), {
+		const integrityTokenResponse = await undici.fetch(bgutils.buildURL("GenerateIT", true), {
 			method: "POST",
 			headers: {
 				"content-type": "application/json+protobuf",
-				"x-goog-api-key": GOOG_API_KEY,
+				"x-goog-api-key": bgutils.GOOG_API_KEY,
 				"x-user-agent": "grpc-web-javascript/0.1",
 				"user-agent": userAgent
 			},
@@ -129,7 +154,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 
 		if (typeof integrityToken[0] !== "string") throw new Error("Could not get integrity token");
 
-		this.integrityTokenBasedMinter = await BG.WebPoMinter.create({ integrityToken: integrityToken[0] }, webPoSignalOutput);
+		this.integrityTokenBasedMinter = await bgutils.BG.WebPoMinter.create({ integrityToken: integrityToken[0] }, webPoSignalOutput);
 	}
 
 	async generatePoTokens(videoId) {
@@ -298,8 +323,8 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 
 				let timing;
 				if (timeParts.length === 3) timing = dayjs.duration({ hours: timeParts[0], minutes: timeParts[1], seconds: timeParts[2] });
-				else if (timeParts.length === 2) timing = dayjs.duration({ minutes: timeParts[0], seconds: timeParts[1] });
-				else if (timeParts.length === 1) timing = dayjs.duration({ seconds: timeParts[0] });
+				else if (timeParts.length === 2) timing = dayjs.duration({ hours: 0, minutes: timeParts[0], seconds: timeParts[1] });
+				else if (timeParts.length === 1) timing = dayjs.duration({ hours: 0, minutes: 0, seconds: timeParts[0] });
 				else return null;
 
 				let caption = line.substring(spaceIndex).trim();
@@ -353,7 +378,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 	async getSubtitlesStream(videoInfo) {
 		const response = await videoInfo.meta.info.actions.session.http.fetch_function(videoInfo.subtitles.url, {
 			method: "GET",
-			headers: innertubeConstants.STREAM_HEADERS,
+			headers: youtubei.Constants.STREAM_HEADERS,
 			redirect: "follow"
 		});
 
