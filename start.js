@@ -244,8 +244,8 @@ class App extends Application {
 	extractChapters(youTubeVideoInfo, mediaDuration) {
 		const chapters = [];
 
-		if (youTubeVideoInfo.timings.length === 0) chapters.push({ caption: youTubeVideoInfo.title });
-		else if (youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) chapters.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
+		if (youTubeVideoInfo.timings.length > 0 &&
+			youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) chapters.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
 
 		for (let i = 0; i < youTubeVideoInfo.timings.length; i++) {
 			const timing = youTubeVideoInfo.timings[i];
