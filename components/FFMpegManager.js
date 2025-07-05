@@ -3,7 +3,6 @@ import childProcess from "node:child_process";
 import LineTransformStream from "line-transform-stream";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
-import dayjs from "./../utils/dayjs.js";
 
 export default class FFMpegManager extends ApplicationComponent {
 	async initialize() {

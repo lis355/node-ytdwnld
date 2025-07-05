@@ -1,4 +1,4 @@
-// import path from "node:path";
+import path from "node:path";
 import stream from "node:stream";
 
 import { Innertube, UniversalCache } from "youtubei.js";
@@ -62,7 +62,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 
 			"user_agent": userAgent,
 
-			"cache": withPlayer ? new UniversalCache(false) : undefined,
+			"cache": withPlayer ? new UniversalCache(false, path.resolve(this.application.userDataDirectory, "innertubeCache")) : undefined,
 			"enable_session_cache": true,
 
 			"generate_session_locally": true
@@ -289,9 +289,10 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			.map(s => s.trim())
 			.filter(Boolean)
 			.map(line => {
-				if (!/^\d\d?:\d\d?/.test(line)) return null;
+				const match = line.match(/^\d+(:\d+)+/);
+				if (!match) return null;
 
-				const spaceIndex = line.indexOf(" ");
+				const spaceIndex = match.index + match[0].length;
 
 				const timeParts = line.substring(0, spaceIndex).split(":").map(parseFloat).filter(Number.isFinite);
 
@@ -301,7 +302,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 				else if (timeParts.length === 1) timing = dayjs.duration({ seconds: timeParts[0] });
 				else return null;
 
-				let caption = line.substring(spaceIndex + 1).trim();
+				let caption = line.substring(spaceIndex).trim();
 				while (caption.startsWith("-")) caption = caption.substring(1).trim();
 				caption = capitalize(caption);
 

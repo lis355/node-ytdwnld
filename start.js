@@ -5,9 +5,9 @@ import streamСonsumers from "node:stream/consumers";
 import streamPromises from "node:stream/promises";
 
 import _ from "lodash";
-import { Command } from "commander";
 import { config as dotenv } from "dotenv-flow";
 import ansiEscapes from "ansi-escapes";
+import * as commander from "commander";
 import filenamify from "filenamify";
 import fs from "fs-extra";
 import srtParser2 from "srt-parser-2";
@@ -154,6 +154,9 @@ class App extends Application {
 		const mediaDuration = dayjs.duration(mediaStreamInfo["approx_duration_ms"]);
 		console.log(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} (${mediaDuration.format("HH:mm:ss")})`);
 
+		const chapters = this.extractChapters(youTubeVideoInfo, mediaDuration);
+		for (let i = 0; i < chapters.length; i++) console.log(`${(i + 1).toString().padStart(3, "0")} - ${chapters[i].caption}`);
+
 		const downloadMedia = async mediaFileName => {
 			const mediaDownloadingStream = await this.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
 
@@ -182,43 +185,12 @@ class App extends Application {
 			await downloadMedia(tempMediaFileName);
 		}
 
-		const chapters = [];
-
-		if (youTubeVideoInfo.timings.length === 0) chapters.push({ caption: youTubeVideoInfo.title });
-		else if (youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) chapters.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
-
-		for (let i = 0; i < youTubeVideoInfo.timings.length; i++) {
-			const timing = youTubeVideoInfo.timings[i];
-			const nextTiming = i !== youTubeVideoInfo.timings.length - 1 ? youTubeVideoInfo.timings[i + 1] : null;
-			chapters.push({ start: timing.timing, finish: nextTiming?.timing || mediaDuration, caption: timing.caption });
-		}
-
-		for (let i = 0; i < chapters.length; i++) console.log(`${(i + 1).toString().padStart(3, "0")} - ${chapters[i].caption}`);
-
 		const mediaDirectoryName = filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 });
 
 		await this.uploadManager.createBaseDirectory(mediaDirectoryName);
 
 		const metadataFilePath = path.resolve(this.tempDirectory, "metadata.txt");
-		const metadataStream = fs.createWriteStream(metadataFilePath);
-
-		metadataStream.write(`;FFMETADATA1
-		title=${youTubeVideoInfo.title}
-		artist=${youTubeVideoInfo.author}
-		`);
-
-		for (const chapter of chapters) {
-			metadataStream.write(`[CHAPTER]
-		TIMEBASE=1/1000
-		START=${chapter.start.asMilliseconds()}
-		END=${chapter.finish.asMilliseconds()}
-		title=${chapter.caption}
-		`);
-		}
-
-		metadataStream.end();
-
-		await streamPromises.finished(metadataStream);
+		await this.createMetadata(metadataFilePath, youTubeVideoInfo, chapters);
 
 		const outputAudioFileNameWithoutExtension = "0";
 		const outputAudioFileName = outputAudioFileNameWithoutExtension + ".m4b";
@@ -268,6 +240,45 @@ class App extends Application {
 		if (!isDevelopment) await this.uploadManager.openBaseDirectoryInExplorer();
 	}
 
+	extractChapters(youTubeVideoInfo, mediaDuration) {
+		const chapters = [];
+
+		if (youTubeVideoInfo.timings.length === 0) chapters.push({ caption: youTubeVideoInfo.title });
+		else if (youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) chapters.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
+
+		for (let i = 0; i < youTubeVideoInfo.timings.length; i++) {
+			const timing = youTubeVideoInfo.timings[i];
+			const nextTiming = i !== youTubeVideoInfo.timings.length - 1 ? youTubeVideoInfo.timings[i + 1] : null;
+			chapters.push({ start: timing.timing, finish: nextTiming?.timing || mediaDuration, caption: timing.caption });
+		}
+
+		return chapters;
+	}
+
+	async createMetadata(metadataFilePath, youTubeVideoInfo, chapters) {
+		const metadataStream = fs.createWriteStream(metadataFilePath);
+
+		metadataStream.write(`;FFMETADATA1
+title=${youTubeVideoInfo.title}
+artist=${youTubeVideoInfo.author}
+
+`);
+
+		for (const chapter of chapters) {
+			metadataStream.write(`[CHAPTER]
+TIMEBASE=1/1000
+START=${chapter.start.asMilliseconds()}
+END=${chapter.finish.asMilliseconds()}
+title=${chapter.caption}
+
+`);
+		}
+
+		metadataStream.end();
+
+		await streamPromises.finished(metadataStream);
+	}
+
 	// fixSubtitles(subtitles) {
 	// 	// на ютубе субтитры могут накладываться друг на друга что не всегда корректно работает в разных плеерах
 	// 	// сделаем, чтобы все элементы массива субтитров были последовательными
@@ -315,43 +326,38 @@ class App extends Application {
 
 const application = new App();
 
-const program = new Command();
+const program = new commander.Command();
 program
 	.name(application.info.name)
 	.version(application.info.version)
-	.description("Application to download youtube videos as audio and upload/save to Filesystem/FTP")
+	.description("Application to download youtube videos as audio and upload/save to Filesystem/FTP");
+
+program.showHelpAfterError();
+
+program
+	.command("config")
+	.description("Open config file")
+	.action(async () => {
+		await runApplicationWithAction(async () => {
+			const process = childProcess.spawn("explorer.exe", [application.configPath]);
+
+			await new Promise(resolve => process.once("exit", resolve));
+		});
+	});
+
+program
+	.command("download", { isDefault: true })
+	.description("Download videos")
 	.argument("<videoIds...>", "youtube video urls or IDs comma separated")
 	// .option("-a, --audio", "Download AAC audio", true)
 	// .option("-s, --subs", "Download subtitles", false)
 	// .option("-c, --chapters", "Split to chapters")
 	// .option("-t --telegram", "Upload to telegram bot")
 	.action(async (name, options, command) => {
-		await application.initialize();
-		await application.run();
-
-		try {
-			if (command.args.length > 0 &&
-				command.args[0] === "config") {
-				const process = childProcess.spawn("explorer.exe", [application.configPath]);
-
-				await new Promise(resolve => process.once("exit", resolve));
-			} else {
-				await application.processYouTubeIds(command.args);
-			}
-		} catch (error) {
-			throw error;
-		} finally {
-			fs.removeSync(application.tempDirectory, "temp");
-		}
-
-		return process.exit();
-	})
-	.command("help")
-	.action(() => {
-		program.help();
+		await runApplicationWithAction(async () => {
+			await application.processYouTubeIds(command.args);
+		});
 	});
-
-program.showHelpAfterError();
 
 program
 	.parse(
@@ -359,3 +365,18 @@ program
 			? [...process.argv.slice(0, 2), ...(process.env.DEVELOPMENT_ARGS || "").split(" ").map(s => s.trim()).filter(Boolean)]
 			: undefined
 	);
+
+async function runApplicationWithAction(asyncAction) {
+	await application.initialize();
+	await application.run();
+
+	try {
+		await asyncAction();
+	} catch (error) {
+		throw error;
+	} finally {
+		fs.removeSync(application.tempDirectory, "temp");
+	}
+
+	return process.exit();
+}
