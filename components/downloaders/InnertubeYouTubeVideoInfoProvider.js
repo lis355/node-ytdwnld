@@ -1,8 +1,8 @@
 import path from "node:path";
 import stream from "node:stream";
 
-// import { socksDispatcher } from "fetch-socks";
 // import fs from "fs-extra";
+import { socksDispatcher } from "fetch-socks";
 import * as bgutils from "bgutils-js";
 import * as jsdom from "jsdom";
 import * as youtubei from "youtubei.js";
@@ -53,19 +53,9 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		clientType = undefined
 		// generateSessionLocally = true
 	} = {}) {
-		// this.proxyAgent = new undici.ProxyAgent({
-		// 	uri: "socks5://localhost:1080"
-		// 	// token: `Basic ${Buffer.from(`${your_proxy_username}:${your_proxy_password}`).toString("base64")}`
-		// });
+		this.proxyAgent = this.createUndiciProxyAgent();
 
-		// this.proxyAgent = socksDispatcher({
-		// 	type: 5,
-		// 	host: "127.0.0.1",
-		// 	port: 1080
-
-		// 	//userId: "username",
-		// 	//password: "password",
-		// });
+		// console.log("External ip:", (await (await undici.fetch("https://echo.free.beeceptor.com/", { dispatcher: this.proxyAgent })).json()).ip);
 
 		this.innertube = await youtubei.Innertube.create({
 			"enable_session_cache": false,
@@ -76,14 +66,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			"enable_safety_mode": safetyMode,
 			"client_type": clientType,
 
-			fetch: (input, init) => {
-				// console.log("[InnertubeYouTubeVideoInfoProvider] fetch:", input.url ? input.url.toString() : input.toString());
-
-				return undici.fetch(input, {
-					// dispatcher: this.proxyAgent,
-					...init
-				});
-			},
+			fetch: this.fetch.bind(this),
 
 			"user_agent": userAgent,
 
@@ -92,6 +75,85 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 
 			"generate_session_locally": true
 		});
+	}
+
+	createUndiciProxyAgent() {
+		let proxyAgent = null;
+
+		if (!this.application.config.proxy) return proxyAgent;
+
+		let proxyUrl;
+		try {
+			proxyUrl = new URL(this.application.config.proxy);
+		} catch (error) {
+			throw new Error(`Bad proxy ${this.application.config.proxy}`);
+		}
+
+		switch (proxyUrl.protocol) {
+			case "http:":
+			case "https:": {
+				const settings = {
+					uri: proxyUrl.href
+				};
+
+				if (proxyUrl.username &&
+					proxyUrl.password) {
+					settings.token = `Basic ${Buffer.from(`${proxyUrl.username}:${proxyUrl.password}`).toString("base64")}`;
+				}
+
+				proxyAgent = new undici.ProxyAgent(settings);
+
+				break;
+			}
+
+			case "socks5:": {
+				const settings = {
+					type: 5,
+					host: proxyUrl.hostname,
+					port: Number(proxyUrl.port)
+				};
+
+				if (proxyUrl.username &&
+					proxyUrl.password) {
+					settings.userId = proxyUrl.username;
+					settings.password = proxyUrl.password;
+				}
+
+				proxyAgent = socksDispatcher(settings);
+
+				break;
+			}
+
+			default: throw new Error(`Unknown proxy protocol ${proxyUrl.protocol}`);
+		}
+
+		return proxyAgent;
+	}
+
+	async fetch(input, init) {
+		if (this.application.isDevelopment) {
+			console.log("[InnertubeYouTubeVideoInfoProvider] fetch");
+			console.log(input.method ? input.method : "GET", input.url ? input.url.toString() : input.toString());
+		}
+
+		if (this.proxyAgent) {
+			init = {
+				dispatcher: this.proxyAgent,
+				...init
+			};
+		}
+
+		try {
+			const response = await undici.fetch(input, init);
+
+			if (this.application.isDevelopment) console.log(response.status, response.statusText);
+
+			return response;
+		} catch (error) {
+			console.error("[InnertubeYouTubeVideoInfoProvider] fetch error:", error.message);
+
+			throw error;
+		}
 	}
 
 	async createIntegrityTokenBasedMinter() {
@@ -122,7 +184,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		if (!challengeResponse.bg_challenge) throw new Error("Could not get challenge");
 
 		const interpreterUrl = challengeResponse.bg_challenge.interpreter_url.private_do_not_access_or_else_trusted_resource_url_wrapped_value;
-		const bgScriptResponse = await undici.fetch(`https:${interpreterUrl}`);
+		const bgScriptResponse = await this.fetch(`https:${interpreterUrl}`);
 		const interpreterJavascript = await bgScriptResponse.text();
 
 		if (interpreterJavascript) {
@@ -137,9 +199,9 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 
 		const webPoSignalOutput = [];
 		const botguardResponse = await botguard.snapshot({ webPoSignalOutput });
-		const requestKey = "O43z0dpjhgX20SCx4KAo";
+		const requestKey = "O43z0dpjhgX20SCx4KAo"; // new Array(20).fill(0).map(() => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random() * 62)]).join("");
 
-		const integrityTokenResponse = await undici.fetch(bgutils.buildURL("GenerateIT", true), {
+		const integrityTokenResponse = await this.fetch(bgutils.buildURL("GenerateIT", true), {
 			method: "POST",
 			headers: {
 				"content-type": "application/json+protobuf",
