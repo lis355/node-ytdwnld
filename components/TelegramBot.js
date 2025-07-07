@@ -1,5 +1,6 @@
 import { EOL } from "node:os";
 import path from "node:path";
+import stream from "node:stream";
 import streamPromises from "node:stream/promises";
 import streamСonsumers from "node:stream/consumers";
 
@@ -117,22 +118,34 @@ export default class TelegramBot extends ApplicationComponent {
 	async processTextMessage(ctx) {
 		const chatId = ctx.chat.id;
 
+		console.log("[TelegramBot]: processTextMessage", ctx.chat.username, chatId, ctx.message.text);
+
 		let videoId;
 		try {
 			videoId = this.application.youTubeVideoInfoProvider.parseVideoId(ctx.message.text.trim());
 		} catch (error) {
-			await sendMessage(chatId, "Некорректая ссылка или ID");
+			await this.sendMessage(chatId, "Некорректая ссылка или ID");
+
+			return;
 		}
 
 		const youTubeVideoInfo = await this.application.youTubeVideoInfoProvider.getVideoInfo(videoId);
+		const videoCaption = `${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`;
+
 		const formatOptions = {};
 		const mediaStreamInfo = await this.application.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
 		const mediaDuration = dayjs.duration(mediaStreamInfo["approx_duration_ms"]);
-		console.log("[TelegramBot]: processTextMessage", ctx.chat.username, chatId, `${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} (${mediaDuration.format("HH:mm:ss")})`);
 
-		if (mediaDuration.asMinutes() > 45) throw new Error("Видео больше 45 минут временно не поддерживаются");
+		console.log("[TelegramBot]: downloading video", `${videoCaption} (${mediaDuration.format("HH:mm:ss")})`);
 
-		const deleteProcessingMessage = await this.sendMessage(chatId, `Обработка видео${EOL}${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} (${mediaDuration.format("HH:mm:ss")})`);
+		// TODO
+		if (mediaDuration.asMinutes() > 45) {
+			await this.sendMessage(chatId, "Видео больше 45 минут временно не поддерживаются");
+
+			return;
+		}
+
+		const deleteProcessingMessage = await this.sendMessage(chatId, `Обработка видео${EOL}${videoCaption} (${mediaDuration.format("HH:mm:ss")})`);
 
 		this.taskQueue.push({
 			ctx, action: async () => {
@@ -176,23 +189,42 @@ export default class TelegramBot extends ApplicationComponent {
 
 				const caption = captionLines.join(EOL);
 
-				// await this.bot.telegram.sendAudio(chatId, Input.fromLocalFile(tempOutputAudioFilePath, filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}.m4b`, { replacement: "", maxLength: 128 })), { caption });
-
-				if (youTubeVideoInfo.subtitles) {
-					const subtitlesStream = await this.application.youTubeVideoInfoProvider.getSubtitlesStream(youTubeVideoInfo);
-					const subtitlesBuffer = await streamСonsumers.buffer(subtitlesStream);
-
-					const srtParser = new srtParser2();
-					const subtitles = srtParser.fromSrt(subtitlesBuffer.toString());
-					this.application.youTubeVideoDownloader.fixSubtitles(subtitles);
-
-					if (subtitles.length > 0) {
-						await this.bot.telegram.sendDocument(chatId, Input.fromReadableStream(stream.Readable.from(srtParser.toSrt(subtitles)), filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}.srt`, { replacement: "", maxLength: 128 })), { caption });
-						await this.bot.telegram.sendDocument(chatId, Input.fromReadableStream(stream.Readable.from(this.getSubtitlesFormattedText(subtitles, chapters)), filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}.txt`, { replacement: "", maxLength: 128 })), { caption });
+				const mediaGroupAudioDocuments = [
+					{
+						media: Input.fromLocalFile(tempOutputAudioFilePath, filenamify(`${videoCaption}.m4b`, { replacement: "", maxLength: 128 })),
+						type: "audio",
+						caption
 					}
-				}
+				];
 
-				await this.bot.telegram.sendMediaGroup(chatId, [Input.fromLocalFile(tempOutputAudioFilePath)], { caption });
+				// TODO Видео больше 45 минут временно не поддерживаются
+
+				await this.bot.telegram.sendMediaGroup(chatId, mediaGroupAudioDocuments);
+
+				// TODO
+				// if (youTubeVideoInfo.subtitles) {
+				// 	const subtitlesStream = await this.application.youTubeVideoInfoProvider.getSubtitlesStream(youTubeVideoInfo);
+				// 	const subtitlesBuffer = await streamСonsumers.buffer(subtitlesStream);
+
+				// 	const srtParser = new srtParser2();
+				// 	const subtitles = srtParser.fromSrt(subtitlesBuffer.toString());
+				// 	this.application.youTubeVideoDownloader.fixSubtitles(subtitles);
+
+				// 	if (subtitles.length > 0) {
+				// 		await this.bot.telegram.sendMediaGroup(chatId, [
+				// 			{
+				// 				media: Input.fromReadableStream(stream.Readable.from(srtParser.toSrt(subtitles)), filenamify(`${videoCaption}.srt`, { replacement: "", maxLength: 128 })),
+				// 				type: "document",
+				// 				caption: caption
+				// 			},
+				// 			{
+				// 				media: Input.fromReadableStream(stream.Readable.from(this.application.youTubeVideoDownloader.getSubtitlesFormattedText(subtitles, chapters)), filenamify(`${videoCaption}.txt`, { replacement: "", maxLength: 128 })),
+				// 				type: "document",
+				// 				caption: caption
+				// 			}
+				// 		]);
+				// 	}
+				// }
 
 				await deleteProcessingMessage();
 

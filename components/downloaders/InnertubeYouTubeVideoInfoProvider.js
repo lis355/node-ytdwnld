@@ -60,8 +60,8 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			"user_agent": userAgent,
 
 			"enable_session_cache": true,
-			"cache": new youtubei.UniversalCache(false, path.resolve(this.application.userDataDirectory, "innertubeCache")),
-			"generate_session_locally": true
+			"cache": new youtubei.UniversalCache(false, path.resolve(this.application.userDataDirectory, "innertubeCache"))
+			// "generate_session_locally": true
 		});
 
 		// this.innertube.session.on("auth-pending", (data) => {

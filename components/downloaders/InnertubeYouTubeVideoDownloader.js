@@ -130,7 +130,6 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 
 			const srtParser = new srtParser2();
 			const subtitles = srtParser.fromSrt(subtitlesBuffer.toString());
-			console.log(subtitles.length, "subtitles");
 			this.fixSubtitles(subtitles);
 
 			await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(srtParser.toSrt(subtitles)));
