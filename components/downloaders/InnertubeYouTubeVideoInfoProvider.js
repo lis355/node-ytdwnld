@@ -35,7 +35,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		await super.initialize();
 
 		try {
-			await this.createInnertube({ withPlayer: true, generateSessionLocally: true, userAgent });
+			await this.createInnertube();
 			await this.createIntegrityTokenBasedMinter();
 		} catch (error) {
 			console.log("Check acess to youtube.com (may be you need VPN or proxy)");
@@ -45,36 +45,41 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		}
 	}
 
-	async createInnertube({
-		withPlayer = false,
-		userAgent = undefined,
-		location = undefined,
-		safetyMode = false,
-		clientType = undefined
-		// generateSessionLocally = true
-	} = {}) {
+	async createInnertube() {
 		this.proxyAgent = this.createUndiciProxyAgent();
 
 		// console.log("External ip:", (await (await undici.fetch("https://echo.free.beeceptor.com/", { dispatcher: this.proxyAgent })).json()).ip);
 
 		this.innertube = await youtubei.Innertube.create({
-			"enable_session_cache": false,
-			"user_agent": navigator.userAgent,
-
-			"retrieve_player": withPlayer,
-			"location": location,
-			"enable_safety_mode": safetyMode,
-			"client_type": clientType,
+			"retrieve_player": true,
+			"location": undefined,
+			"enable_safety_mode": false,
+			"client_type": undefined,
 
 			fetch: this.fetch.bind(this),
-
 			"user_agent": userAgent,
 
-			"cache": withPlayer ? new youtubei.UniversalCache(false, path.resolve(this.application.userDataDirectory, "innertubeCache")) : undefined,
 			"enable_session_cache": true,
-
+			"cache": new youtubei.UniversalCache(false, path.resolve(this.application.userDataDirectory, "innertubeCache")),
 			"generate_session_locally": true
 		});
+
+		// this.innertube.session.on("auth-pending", (data) => {
+		// 	console.log(`Go to ${data.verification_url} in your browser and enter code ${data.user_code} to authenticate.`);
+		// });
+
+		// this.innertube.session.on("auth", async ({ credentials }) => {
+		// 	console.log("[InnertubeYouTubeVideoInfoProvider] sign in successful");
+		// 	await this.innertube.session.oauth.cacheCredentials();
+		// });
+
+		// this.innertube.session.on("update-credentials", async ({ credentials }) => {
+		// 	console.log("[InnertubeYouTubeVideoInfoProvider] credentials updated");
+
+		// 	await this.innertube.session.oauth.cacheCredentials();
+		// });
+
+		// await this.innertube.session.signIn();
 	}
 
 	createUndiciProxyAgent() {
@@ -164,7 +169,10 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			url: "https://www.youtube.com/",
 			referrer: "https://www.youtube.com/",
 			userAgent,
-			virtualConsole
+			virtualConsole,
+			resources: new jsdom.ResourceLoader({
+				userAgent
+			})
 		});
 
 		Object.assign(globalThis, {
@@ -223,6 +231,17 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		return { contentPoToken, sessionPoToken };
 	}
 
+	setPoTokens(poTokens) {
+		try {
+			this.innertube.session["po_token"] = poTokens.contentPoToken;
+			this.innertube.session.player["po_token"] = poTokens.sessionPoToken;
+		} catch (error) {
+			console.error("[InnertubeYouTubeVideoInfoProvider]: poToken generation failed", error);
+
+			throw error;
+		}
+	}
+
 	parseVideoId(text) {
 		if (/^[^#\&\?]{11}$/.test(text)) return text;
 
@@ -233,16 +252,8 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 	}
 
 	async getVideoInfo(videoId) {
-		const { contentPoToken, sessionPoToken } = await this.generatePoTokens(videoId);
-
-		try {
-			this.innertube.session["po_token"] = contentPoToken;
-			this.innertube.session.player["po_token"] = sessionPoToken;
-		} catch (error) {
-			console.error("Local API, poToken generation failed", error);
-
-			throw error;
-		}
+		const poTokens = await this.generatePoTokens(videoId);
+		this.setPoTokens(poTokens);
 
 		const info = await this.innertube.getInfo(videoId);
 		const mwebInfo = await this.innertube.getBasicInfo(videoId, "MWEB");
