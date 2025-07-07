@@ -8,7 +8,6 @@ import { Telegraf, Input } from "telegraf";
 import async from "async";
 import filenamify from "filenamify";
 import fs from "fs-extra";
-import srtParser2 from "srt-parser-2";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
 import dayjs from "../utils/dayjs.js";

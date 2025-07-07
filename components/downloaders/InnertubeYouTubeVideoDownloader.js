@@ -7,12 +7,12 @@ import _ from "lodash";
 import ansiEscapes from "ansi-escapes";
 import filenamify from "filenamify";
 import fs from "fs-extra";
-import srtParser2 from "srt-parser-2";
 
 import ApplicationComponent from "../app/ApplicationComponent.js";
 import dayjs from "../../utils/dayjs.js";
 import ProgressBar from "../../utils/ProgressBar.js";
 import progressPassThroughStream from "../../utils/progressPassThroughStream.js";
+import SRTParser from "../../utils/srt.js";
 
 export default class InnertubeYouTubeVideoDownloader extends ApplicationComponent {
 	async initialize() {
@@ -126,13 +126,12 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 			console.log("Downloading subtitles");
 
 			const subtitlesStream = await this.application.youTubeVideoInfoProvider.getSubtitlesStream(youTubeVideoInfo);
-			const subtitlesBuffer = await streamСonsumers.buffer(subtitlesStream);
+			const subtitlesStr = await streamСonsumers.text(subtitlesStream);
 
-			const srtParser = new srtParser2();
-			const subtitles = srtParser.fromSrt(subtitlesBuffer.toString());
+			const subtitles = SRTParser.parse(subtitlesStr);
 			this.fixSubtitles(subtitles);
 
-			await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(srtParser.toSrt(subtitles)));
+			await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(SRTParser.format(subtitles)));
 			await this.application.uploadManager.uploadFileStream(`${mediaDirectoryName}.txt`, stream.Readable.from(this.getSubtitlesFormattedText(subtitles, chapters)));
 
 			console.log("Done");
@@ -198,21 +197,34 @@ title=${chapter.caption}
 	fixSubtitles(subtitles) {
 		// на ютубе субтитры могут накладываться друг на друга что не всегда корректно работает в разных плеерах
 		// сделаем, чтобы все элементы массива субтитров были последовательными
-		// for (let i = 1; i < subtitles.length; i++) {
-		// 	const previousItem = subtitles[i - 1];
-		// 	const currentItem = subtitles[i];
 
-		// 	if (previousItem.endSeconds > currentItem.startSeconds) {
-		// 		previousItem.endSeconds = currentItem.endSeconds;
-		// 		previousItem.endSeconds = currentItem.endSeconds;
-		// 		previousItem.text += " " + currentItem.text;
+		for (let i = 1; i < subtitles.length; i++) {
+			const previousItem = subtitles[i - 1];
+			const currentItem = subtitles[i];
 
-		// 		subtitles.splice(i, 1);
-		// 		i--;
-		// 	}
-		// }
+			if (previousItem.time[1] > currentItem.time[0]) {
+				previousItem.text = previousItem.text.join(" ");
+				currentItem.text = currentItem.text.join(" ");
 
-		// for (let i = 0; i < subtitles.length; i++) subtitles[i].id = (i + 1).toString();
+				// посчитаем, сколько в процентом соотношении нужно "отрезать" символов от currentItem.text
+				const percent = (previousItem.time[1] - currentItem.time[0]) / (currentItem.time[1] - currentItem.time[0]);
+				let symbolsCount = Math.floor(currentItem.text.length * percent);
+
+				// отрежем слова, чтобы примерно уложиться в symbolsCount
+				const words = currentItem.text.split(" ");
+
+				while (symbolsCount > 0) {
+					symbolsCount -= words[0].length + 1;
+					previousItem.text += " " + words.shift();
+				}
+
+				previousItem.text = [previousItem.text];
+				currentItem.text = [words.join(" ")];
+
+				// двигаем временную метку у currentItem
+				currentItem.time[0] = previousItem.time[1];
+			}
+		}
 	}
 
 	getSubtitlesFormattedText(subtitles, chapters) {
