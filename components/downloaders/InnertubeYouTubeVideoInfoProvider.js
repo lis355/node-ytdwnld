@@ -41,7 +41,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			console.log("Check acess to youtube.com (may be you need VPN or proxy)");
 			console.log("Innertube error:", error.message);
 
-			return process.exit();
+			return this.application.exit(1);
 		}
 	}
 
@@ -131,10 +131,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 	}
 
 	async fetch(input, init) {
-		if (this.application.isDevelopment) {
-			console.log("[InnertubeYouTubeVideoInfoProvider] fetch");
-			console.log(input.method ? input.method : "GET", input.url ? input.url.toString() : input.toString());
-		}
+		// if (this.application.isDevelopment) console.log(input.method ? input.method : "GET", input.url ? input.url.toString() : input.toString());
 
 		if (this.proxyAgent) {
 			init = {
@@ -146,7 +143,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		try {
 			const response = await undici.fetch(input, init);
 
-			if (this.application.isDevelopment) console.log(response.status, response.statusText);
+			// if (this.application.isDevelopment) console.log(response.status, response.statusText);
 
 			return response;
 		} catch (error) {
@@ -258,83 +255,6 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		info["playability_status"] = mwebInfo["playability_status"];
 		info["streaming_data"] = mwebInfo["streaming_data"];
 
-		// let hasTrailer = info.has_trailer;
-		// let trailerIsAgeRestricted = info.getTrailerInfo() === null;
-
-		// if (
-		// 	((info.playability_status.status === "UNPLAYABLE" || info.playability_status.status === "LOGIN_REQUIRED") &&
-		// 		info.playability_status.reason === "Sign in to confirm your age") ||
-		// 	(hasTrailer && trailerIsAgeRestricted)
-		// ) {
-		// 	const webEmbeddedInnertube = await createInnertube({ clientType: ClientType.WEB_EMBEDDED });
-		// 	webEmbeddedInnertube.session.context.client.visitorData = this.innertube.session.context.client.visitorData;
-
-		// 	if (contentPoToken) webEmbeddedInnertube.session.po_token = contentPoToken;
-
-		// 	const videoId = hasTrailer && trailerIsAgeRestricted ? info.playability_status.error_screen.video_id : videoId;
-
-		// 	webEmbeddedInnertube.session.player = this.innertube.session.player;
-
-		// 	const bypassedInfo = await webEmbeddedInnertube.getBasicInfo(videoId, "WEB_EMBEDDED");
-
-		// 	if (bypassedInfo.playability_status.status === "OK" && bypassedInfo["streaming_data"]) {
-		// 		info.playability_status = bypassedInfo.playability_status;
-		// 		info["streaming_data"] = bypassedInfo["streaming_data"];
-		// 		info.basic_info.start_timestamp = bypassedInfo.basic_info.start_timestamp;
-		// 		info.basic_info.duration = bypassedInfo.basic_info.duration;
-		// 		info.captions = bypassedInfo.captions;
-		// 		info.storyboards = bypassedInfo.storyboards;
-
-		// 		hasTrailer = false;
-		// 		trailerIsAgeRestricted = false;
-		// 	}
-		// }
-
-		// if ((info.playability_status.status === "UNPLAYABLE" && (!hasTrailer || trailerIsAgeRestricted)) ||
-		// 	info.playability_status.status === "LOGIN_REQUIRED") {
-		// 	return info;
-		// }
-
-		// if (hasTrailer) {
-		// 	const trailerScreen = info.playability_status.error_screen;
-		// 	const trailerInfo = new Mixins.MediaInfo([{ data: trailerScreen.trailer.player_response }]);
-
-		// 	info.playability_status = trailerInfo.playability_status;
-		// 	info["streaming_data"] = trailerInfo["streaming_data"];
-		// 	info.basic_info.start_timestamp = trailerInfo.basic_info.start_timestamp;
-		// 	info.basic_info.duration = trailerInfo.basic_info.duration;
-		// 	info.captions = trailerInfo.captions;
-		// 	info.storyboards = trailerInfo.storyboards;
-		// }
-
-		// function decipherFormats(formats, player) {
-		// 	for (const format of formats) format.url = format.decipher(player);
-		// }
-
-		// if (info["streaming_data"]) {
-		// 	decipherFormats(info["streaming_data"].formats, this.innertube.session.player);
-
-		// 	const firstFormat = info["streaming_data"]["adaptive_formats"][0];
-
-		// 	if (firstFormat.url ||
-		// 		firstFormat["signature_cipher"] ||
-		// 		firstFormat.cipher) {
-		// 		decipherFormats(info["streaming_data"]["adaptive_formats"], this.innertube.session.player);
-		// 	}
-
-		// 	// if (info["streaming_data"].dash_manifest_url) {
-		// 	// 	let url = info["streaming_data"].dash_manifest_url;
-
-		// 	// 	if (url.includes("?")) {
-		// 	// 		url += `&pot=${encodeURIComponent(sessionPoToken)}&mpd_version=7`;
-		// 	// 	} else {
-		// 	// 		url += `${url.endsWith("/") ? "" : "/"}pot/${encodeURIComponent(sessionPoToken)}/mpd_version/7`;
-		// 	// 	}
-
-		// 	// 	info["streaming_data"].dash_manifest_url = url;
-		// 	// }
-		// }
-
 		const { id, author, title } = info["basic_info"];
 
 		const videoInfo = {
@@ -399,28 +319,6 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 				};
 			})
 			.filter(Boolean);
-
-		// await this.navigateBrowserAndUpdateCookies(youTubeId);
-
-		// const info = await ytdl.getInfo(youTubeId, {
-		// 	requestOptions: {
-		// 		headers: {
-		// 			cookie: this.cookiesString,
-		// 			YOUTUBE_ID_TOKEN_HEADER: this.idTokenHeader
-		// 		},
-		// 		agent: this.proxyAgent
-		// 	}
-		// });
-
-		// info.videoDetails.duration = moment.duration(info.videoDetails.lengthSeconds, "seconds");
-
-		// if (info.videoDetails.chapters) {
-		// 	info.videoDetails.chapters.forEach(chapter => {
-		// 		chapter.startTime = moment.duration(chapter.start_time, "seconds");
-		// 	});
-		// }
-
-		// return info;
 
 		return videoInfo;
 	}

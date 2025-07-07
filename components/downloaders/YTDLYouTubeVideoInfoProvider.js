@@ -65,7 +65,6 @@
 // 		this.browser = new sider.Browser();
 
 // 		this.browser.on("closed", () => {
-// 			process.exit();
 // 		});
 
 // 		const options = {

@@ -13,7 +13,7 @@ export default class FFMpegManager extends ApplicationComponent {
 		} catch (error) {
 			console.log("ffmpeg error:", error.message);
 
-			return process.exit();
+			return this.application.exit(1);
 		}
 	}
 

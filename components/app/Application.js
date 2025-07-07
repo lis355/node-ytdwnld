@@ -6,9 +6,6 @@ export default class Application {
 		process.on("unhandledRejection", error => { this.onUnhandledRejection(error); });
 
 		const defaultErrorHandler = error => {
-			// TODO HACK https://github.com/lis355/node-ytdl-audio-telegram-bot/issues/2
-			if (error.message.includes("write EOF")) return;
-
 			console.error(error);
 		};
 
@@ -32,5 +29,11 @@ export default class Application {
 
 	async run() {
 		for (let i = 0; i < this.components.length; i++) await this.components[i].run();
+	}
+
+	async exit(code = 0) {
+		for (let i = 0; i < this.components.length; i++) await this.components[i].exit();
+
+		process.exit(code);
 	}
 }
