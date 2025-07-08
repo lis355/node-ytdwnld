@@ -11,6 +11,7 @@ import fs from "fs-extra";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
 import dayjs from "../utils/dayjs.js";
+import SRTParser from "../utils/srt.js";
 
 const MAX_MESSAGE_LENGTH = 4096;
 const LOG_MESSAGE_LIFETIME_IN_MILLISECONDS = 10000;
@@ -135,20 +136,13 @@ export default class TelegramBot extends ApplicationComponent {
 		const mediaStreamInfo = await this.application.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
 		const mediaDuration = dayjs.duration(mediaStreamInfo["approx_duration_ms"]);
 
-		console.log("[TelegramBot]: downloading video", `${videoCaption} (${mediaDuration.format("HH:mm:ss")})`);
-
-		// TODO
-		if (mediaDuration.asMinutes() > 45) {
-			await this.sendMessage(chatId, "Видео больше 45 минут временно не поддерживаются");
-
-			return;
-		}
-
 		const deleteProcessingMessage = await this.sendMessage(chatId, `Обработка видео${EOL}${videoCaption} (${mediaDuration.format("HH:mm:ss")})`);
 
 		this.taskQueue.push({
 			ctx, action: async () => {
 				const downloadMedia = async mediaFileName => {
+					console.log("[TelegramBot]: downloading video", `${videoCaption} (${mediaDuration.format("HH:mm:ss")})`);
+
 					const mediaDownloadingStream = await this.application.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
 
 					await streamPromises.finished(
@@ -178,7 +172,7 @@ export default class TelegramBot extends ApplicationComponent {
 
 				const tempOutputAudioFilePath = path.resolve(this.application.tempDirectory, `${videoId}.m4b`);
 
-				await this.application.ffmpegManager.extractAACAudioFromMP4VideoStream(tempMediaFileName, tempMetadataFilePath, tempOutputAudioFilePath);
+				await this.application.ffmpegManager.extractM4AudioFromMP4Video(tempMediaFileName, tempMetadataFilePath, tempOutputAudioFilePath);
 
 				const captionLines = [
 					`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} (${mediaDuration.format("HH:mm:ss")})`
@@ -188,46 +182,62 @@ export default class TelegramBot extends ApplicationComponent {
 
 				const caption = captionLines.join(EOL);
 
-				const mediaGroupAudioDocuments = [
-					{
+				const tempOutputAudioPartFilePaths = [];
+				const mediaGroupAudioDocuments = [];
+
+				// https://core.telegram.org/bots/api#sending-files
+				// Post the file using multipart/form-data in the usual way that files are uploaded via the browser. 10 MB max size for photos, 50 MB for other files.
+				// aac 96 kbps quality 65 minutes size estimated file size is around 45 MB
+				const maximumAudioDuration = dayjs.duration(65, "minutes");
+				if (mediaDuration > maximumAudioDuration) {
+					await this.application.ffmpegManager.splitM4AudioIntoParts(tempOutputAudioFilePath, tempOutputAudioFilePath, mediaDuration, maximumAudioDuration, tempOutputAudioPartFilePaths);
+
+					tempOutputAudioPartFilePaths.forEach((tempOutputAudioPartFilePath, index) => {
+						mediaGroupAudioDocuments.push({
+							media: Input.fromLocalFile(tempOutputAudioPartFilePath, filenamify(`${videoCaption}.${index.toString().padStart(2, "0")}.m4b`, { replacement: "", maxLength: 128 })),
+							type: "audio",
+							caption: index === tempOutputAudioPartFilePaths.length - 1 ? caption : undefined
+						});
+					});
+				} else {
+					mediaGroupAudioDocuments.push({
 						media: Input.fromLocalFile(tempOutputAudioFilePath, filenamify(`${videoCaption}.m4b`, { replacement: "", maxLength: 128 })),
 						type: "audio",
 						caption
+					});
+				}
+
+				// can't send media group with summary size more than 50 mb
+				// await this.bot.telegram.sendMediaGroup(chatId, mediaGroupAudioDocuments);
+				for (const mediaGroupAudioDocument of mediaGroupAudioDocuments) await this.bot.telegram.sendAudio(chatId, mediaGroupAudioDocument.media, { caption: mediaGroupAudioDocument.caption });
+
+				if (youTubeVideoInfo.subtitles) {
+					const subtitlesStream = await this.application.youTubeVideoInfoProvider.getSubtitlesStream(youTubeVideoInfo);
+					const subtitlesStr = await streamСonsumers.text(subtitlesStream);
+
+					const subtitles = SRTParser.parse(subtitlesStr);
+					if (subtitles.length > 0) {
+						const subtitlesFormattedText = this.application.youTubeVideoDownloader.getSubtitlesFormattedText(subtitles, chapters);
+
+						this.application.youTubeVideoDownloader.fixSubtitles(subtitles);
+
+						await this.bot.telegram.sendMediaGroup(chatId, [
+							{
+								media: Input.fromReadableStream(stream.Readable.from(SRTParser.format(subtitles)), filenamify(`${videoCaption}.srt`, { replacement: "", maxLength: 128 })),
+								type: "document"
+							},
+							{
+								media: Input.fromReadableStream(stream.Readable.from(subtitlesFormattedText), filenamify(`${videoCaption}.txt`, { replacement: "", maxLength: 128 })),
+								type: "document"
+							}
+						]);
 					}
-				];
-
-				// TODO Видео больше 45 минут временно не поддерживаются
-
-				await this.bot.telegram.sendMediaGroup(chatId, mediaGroupAudioDocuments);
-
-				// TODO
-				// if (youTubeVideoInfo.subtitles) {
-				// 	const subtitlesStream = await this.application.youTubeVideoInfoProvider.getSubtitlesStream(youTubeVideoInfo);
-				// 	const subtitlesBuffer = await streamСonsumers.buffer(subtitlesStream);
-
-				// 	const srtParser = new srtParser2();
-				// 	const subtitles = srtParser.fromSrt(subtitlesBuffer.toString());
-				// 	this.application.youTubeVideoDownloader.fixSubtitles(subtitles);
-
-				// 	if (subtitles.length > 0) {
-				// 		await this.bot.telegram.sendMediaGroup(chatId, [
-				// 			{
-				// 				media: Input.fromReadableStream(stream.Readable.from(srtParser.toSrt(subtitles)), filenamify(`${videoCaption}.srt`, { replacement: "", maxLength: 128 })),
-				// 				type: "document",
-				// 				caption: caption
-				// 			},
-				// 			{
-				// 				media: Input.fromReadableStream(stream.Readable.from(this.application.youTubeVideoDownloader.getSubtitlesFormattedText(subtitles, chapters)), filenamify(`${videoCaption}.txt`, { replacement: "", maxLength: 128 })),
-				// 				type: "document",
-				// 				caption: caption
-				// 			}
-				// 		]);
-				// 	}
-				// }
+				}
 
 				await deleteProcessingMessage();
 
 				fs.removeSync(tempMediaFileName);
+				tempOutputAudioPartFilePaths.forEach(tempOutputAudioPartFilePath => fs.removeSync(tempOutputAudioPartFilePath));
 				fs.removeSync(tempMetadataFilePath);
 				fs.removeSync(tempOutputAudioFilePath);
 			}

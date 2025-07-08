@@ -1,8 +1,10 @@
 import childProcess from "node:child_process";
+import path from "node:path";
 
 import LineTransformStream from "line-transform-stream";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
+import dayjs from "../utils/dayjs.js";
 
 export default class FFMpegManager extends ApplicationComponent {
 	async initialize() {
@@ -62,12 +64,35 @@ export default class FFMpegManager extends ApplicationComponent {
 		});
 	}
 
-	async extractAACAudioFromMP4VideoStream(videoFilePath, metadataFilePath, outputAudioFilePath) {
+	async extractM4AudioFromMP4Video(videoFilePath, metadataFilePath, outputAudioFilePath) {
 		const ffmpegProcess = this.createFFMpegProcess(`-i "${videoFilePath}" -i "${metadataFilePath}" -map_metadata 1 -c copy -map 0:a:0 -f mp4 -y "${outputAudioFilePath}"`);
 
 		await new Promise((resolve, reject) => {
 			ffmpegProcess.once("exit", code => code === 0 ? resolve() : reject(new Error(code.toString())));
 			ffmpegProcess.once("error", reject);
 		});
+	}
+
+	async splitM4AudioIntoParts(audioFilePath, outputAudioFilePath, audioDuration, partDuration, outputAudioFilePaths) {
+		let processedDuration = dayjs.duration();
+		let partIndex = 0;
+
+		while (processedDuration < audioDuration) {
+			const startTimeStr = processedDuration.format("HH:mm:ss");
+			const durationStr = partDuration.format("HH:mm:ss");
+
+			const outputAudioPartFilePath = `${outputAudioFilePath}.${partIndex}${path.extname(outputAudioFilePath)}`;
+			outputAudioFilePaths.push(outputAudioPartFilePath);
+
+			const ffmpegProcess = this.createFFMpegProcess(`-i "${audioFilePath}" -c copy -ss ${startTimeStr} -t ${durationStr} -y "${outputAudioPartFilePath}"`);
+
+			await new Promise((resolve, reject) => {
+				ffmpegProcess.once("exit", code => code === 0 ? resolve() : reject(new Error(code.toString())));
+				ffmpegProcess.once("error", reject);
+			});
+
+			processedDuration = processedDuration.add(partDuration);
+			partIndex++;
+		}
 	}
 };

@@ -107,7 +107,7 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 		const outputAudioFileName = outputAudioFileNameWithoutExtension + ".m4b";
 		const tempOutputAudioFilePath = path.resolve(this.application.tempDirectory, outputAudioFileName);
 
-		await this.application.ffmpegManager.extractAACAudioFromMP4VideoStream(tempMediaFileName, tempMetadataFilePath, tempOutputAudioFilePath);
+		await this.application.ffmpegManager.extractM4AudioFromMP4Video(tempMediaFileName, tempMetadataFilePath, tempOutputAudioFilePath);
 
 		const uploadStream = fs.createReadStream(tempOutputAudioFilePath);
 		const tempOutputAudioFileSize = fs.statSync(tempOutputAudioFilePath).size;
@@ -129,10 +129,12 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 			const subtitlesStr = await streamСonsumers.text(subtitlesStream);
 
 			const subtitles = SRTParser.parse(subtitlesStr);
-			this.fixSubtitles(subtitles);
+			if (subtitles.length > 0) {
+				await this.application.uploadManager.uploadFileStream(`${mediaDirectoryName}.txt`, stream.Readable.from(this.getSubtitlesFormattedText(subtitles, chapters)));
 
-			await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(SRTParser.format(subtitles)));
-			await this.application.uploadManager.uploadFileStream(`${mediaDirectoryName}.txt`, stream.Readable.from(this.getSubtitlesFormattedText(subtitles, chapters)));
+				this.fixSubtitles(subtitles);
+				await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(SRTParser.format(subtitles)));
+			}
 
 			console.log("Done");
 		}
@@ -218,8 +220,8 @@ title=${chapter.caption}
 					previousItem.text += " " + words.shift();
 				}
 
-				previousItem.text = [previousItem.text];
-				currentItem.text = [words.join(" ")];
+				previousItem.text = [previousItem.text.trim()];
+				currentItem.text = [words.join(" ").trim()];
 
 				// двигаем временную метку у currentItem
 				currentItem.time[0] = previousItem.time[1];
@@ -228,24 +230,30 @@ title=${chapter.caption}
 	}
 
 	getSubtitlesFormattedText(subtitles, chapters) {
-		// TODO сделать нормально https://github.com/lis355/node-ytdwnld/issues/9
 
 		const parts = [];
 
-		let nextChapterIndex = 0;
+		let chapterIndex = 0;
 
 		for (const subtitle of subtitles) {
-			if (nextChapterIndex < chapters.length) {
-				const nextChapter = chapters[nextChapterIndex];
-				if (dayjs.duration({ seconds: subtitle.endSeconds }) > nextChapter.start) {
-					// TODO не разрывать предложения
-					parts.push(`\n\n${dayjs.duration(nextChapter.start.asMilliseconds()).format("HH:mm:ss")} ${nextChapter.caption}\n\n`);
+			const text = subtitle.text.join(" ");
 
-					nextChapterIndex++;
+			if (chapterIndex < chapters.length) {
+				const chapter = chapters[chapterIndex];
+				if (subtitle.time[1] > chapter.start) {
+					// TODO сделать нормально https://github.com/lis355/node-ytdwnld/issues/9
+					// TODO не разрывать предложения
+
+					// const sentenceParts = text.split(/[\.\?\!]/);
+					// if (sentenceParts.length > 1) parts.push(sentenceParts[0]);
+
+					parts.push(`\n\n${dayjs.duration(chapter.start.asMilliseconds()).format("HH:mm:ss")} ${chapter.caption}\n\n`);
+
+					chapterIndex++;
 				}
 			}
 
-			parts.push(subtitle.text + " ");
+			parts.push(text + " ");
 		}
 
 		return parts.join("").trim();
