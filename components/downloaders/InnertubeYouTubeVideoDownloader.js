@@ -134,9 +134,11 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 
 				this.fixSubtitles(subtitles);
 				await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(SRTParser.format(subtitles)));
-			}
 
-			console.log("Done");
+				console.log("Done");
+			} else {
+				console.log("No subtitles");
+			}
 		}
 
 		await this.application.uploadManager.uploadFileStream("info.json", stream.Readable.from(JSON.stringify({

@@ -7,8 +7,7 @@ const name = "ytdwnld";
 const batFilePath = `C:/windows/${name}.bat`;
 const currentScriptDirname = path.dirname(url.fileURLToPath(import.meta.url));
 
-fs.writeFileSync(batFilePath, `
-@echo off
+fs.writeFileSync(batFilePath, `@echo off
 node "${path.resolve(currentScriptDirname, "..", "start.js")}" %*
 `);
 

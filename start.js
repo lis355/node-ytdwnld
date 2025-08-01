@@ -9,11 +9,8 @@ import fs from "fs-extra";
 import YAML from "yaml";
 
 import Application from "./components/app/Application.js";
-import FFMpegManager from "./components/FFMpegManager.js";
-import TelegramBot from "./components/TelegramBot.js";
-import UploadManager from "./components/uploaders/UploadManager.js";
-import YouTubeVideoDownloader from "./components/downloaders/InnertubeYouTubeVideoDownloader.js";
-import YouTubeVideoInfoProvider from "./components/downloaders/InnertubeYouTubeVideoInfoProvider.js";
+
+import info from "./package.json" with { type: "json" };
 
 dotenv({
 	path: import.meta.dirname
@@ -33,13 +30,9 @@ class App extends Application {
 	constructor() {
 		super();
 
-		this.printLogo();
+		this.info = info;
 
-		this.addComponent(this.ffmpegManager = new FFMpegManager());
-		this.addComponent(this.youTubeVideoInfoProvider = new YouTubeVideoInfoProvider());
-		this.addComponent(this.youTubeVideoDownloader = new YouTubeVideoDownloader());
-		this.addComponent(this.uploadManager = new UploadManager());
-		this.addComponent(this.telegramBot = new TelegramBot());
+		this.printLogo();
 	}
 
 	printLogo() {
@@ -63,6 +56,18 @@ class App extends Application {
 		this.createUserDataDirectory();
 		this.createTemporaryDirectory();
 		this.createConfig();
+
+		const { default: FFMpegManager } = await import("./components/FFMpegManager.js");
+		const { default: TelegramBot } = await import("./components/TelegramBot.js");
+		const { default: UploadManager } = await import("./components/uploaders/UploadManager.js");
+		const { default: YouTubeVideoDownloader } = await import("./components/downloaders/InnertubeYouTubeVideoDownloader.js");
+		const { default: YouTubeVideoInfoProvider } = await import("./components/downloaders/InnertubeYouTubeVideoInfoProvider.js");
+
+		this.addComponent(this.ffmpegManager = new FFMpegManager());
+		this.addComponent(this.youTubeVideoInfoProvider = new YouTubeVideoInfoProvider());
+		this.addComponent(this.youTubeVideoDownloader = new YouTubeVideoDownloader());
+		this.addComponent(this.uploadManager = new UploadManager());
+		this.addComponent(this.telegramBot = new TelegramBot());
 
 		await super.initialize();
 	}

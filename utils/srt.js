@@ -4,8 +4,7 @@ import dayjs from "./dayjs.js";
 
 export default class SRTParser {
 	static parse(str) {
-		if (typeof str !== "string" ||
-			str === "") throw new Error("Expected string");
+		if (typeof str !== "string") throw new Error("Expected string");
 
 		const subtitles = [];
 

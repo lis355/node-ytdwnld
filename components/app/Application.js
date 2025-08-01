@@ -1,5 +1,3 @@
-import info from "../../package.json" with { type: "json" };
-
 export default class Application {
 	constructor() {
 		process.on("uncaughtException", error => { this.onUncaughtException(error); });
@@ -11,8 +9,6 @@ export default class Application {
 
 		this.onUncaughtException = defaultErrorHandler;
 		this.onUnhandledRejection = defaultErrorHandler;
-
-		this.info = info;
 
 		this.components = [];
 	}
