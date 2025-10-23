@@ -11,13 +11,14 @@ import YAML from "yaml";
 import Application from "./components/app/Application.js";
 
 import info from "./package.json" with { type: "json" };
+import chalk from "chalk";
 
 dotenv({
 	path: import.meta.dirname
 });
 
-const isDevelopment = process.env.VSCODE_INJECTION &&
-	process.env.VSCODE_INSPECTOR_OPTIONS;
+const isDevelopment = Boolean(process.env.VSCODE_INJECTION &&
+	process.env.VSCODE_INSPECTOR_OPTIONS);
 
 const BASE_CONFIG = {
 	outputDirectory: "",
@@ -112,10 +113,10 @@ class App extends Application {
 	async run() {
 		await super.run();
 
-		if (isDevelopment) console.warn("[isDevelopment]");
-		console.log(`[userDataDirectory]: ${this.userDataDirectory}`);
-		console.log(`[config]: ${this.configPath}`);
-		console.log(`[config.outputDirectory]: ${this.config.outputDirectory}`);
+		if (isDevelopment) console.warn(chalk.yellow("[isDevelopment]"));
+		console.log(`${chalk.green("[userDataDirectory]:")} ${this.userDataDirectory}`);
+		console.log(`${chalk.green("[config]:")} ${this.configPath}`);
+		console.log(`${chalk.green("[config.outputDirectory]:")} ${this.config.outputDirectory}`);
 	}
 
 	async exit(code = 0) {

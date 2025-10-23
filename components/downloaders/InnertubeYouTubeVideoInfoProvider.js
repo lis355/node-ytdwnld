@@ -6,11 +6,11 @@ import { socksDispatcher } from "fetch-socks";
 import * as bgutils from "bgutils-js";
 import * as jsdom from "jsdom";
 import * as youtubei from "youtubei.js";
-import getYouTubeID from "get-youtube-id";
 import undici from "undici";
 
 import ApplicationComponent from "../app/ApplicationComponent.js";
 import dayjs from "../../utils/dayjs.js";
+import getYouTubeId from "../../utils/getYouTubeId.js";
 
 // https://github.com/LuanRT/BgUtils/blob/main/examples/node/innertube-challenge-fetcher-example.ts
 
@@ -18,6 +18,21 @@ import dayjs from "../../utils/dayjs.js";
 youtubei.Utils.Platform.shim.fetch = undici.fetch;
 youtubei.Utils.Platform.shim.Request = undici.Request;
 youtubei.Utils.Platform.shim.Response = undici.Response;
+
+// https://ytjs.dev/guide/getting-started.html#providing-a-custom-javascript-interpreter
+youtubei.Utils.Platform.shim.eval = async (data, env) => {
+	const properties = [];
+
+	if (env.n) properties.push(`n: exportedVars.nFunction("${env.n}")`);
+	if (env.sig) properties.push(`sig: exportedVars.sigFunction("${env.sig}")`);
+
+	const code = `${data.output}\nreturn { ${properties.join(", ")} }`;
+
+	const func = new Function(code);
+	const result = func();
+
+	return result;
+};
 
 // HACK for hide parser warning message
 youtubei.Parser.setParserErrorHandler(error => {
@@ -245,7 +260,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 	parseVideoId(text) {
 		if (/^[^#\&\?]{11}$/.test(text)) return text;
 
-		const videoId = getYouTubeID((text || "").trim());
+		const videoId = getYouTubeId((text || "").trim());
 		if (!videoId) throw new Error("Bad url or text");
 
 		return videoId;
@@ -261,7 +276,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		// fs.outputFileSync(path.resolve(this.application.userDataDirectory, "info.json"), JSON.stringify({ info, mwebInfo }, null, "\t"));
 
 		if (mwebInfo["playability_status"].status !== "OK" ||
-			!mwebInfo["streaming_data"]) throw new Error("Bad playability status");
+			!mwebInfo["streaming_data"]) throw new Error("Bad playability status", { cause: mwebInfo["playability_status"].status });
 
 		info["playability_status"] = mwebInfo["playability_status"];
 		info["streaming_data"] = mwebInfo["streaming_data"];

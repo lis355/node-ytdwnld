@@ -5,6 +5,7 @@ import streamPromises from "node:stream/promises";
 
 import _ from "lodash";
 import ansiEscapes from "ansi-escapes";
+import chalk from "chalk";
 import filenamify from "filenamify";
 import fs from "fs-extra";
 
@@ -27,17 +28,22 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 
 		await this.application.uploadManager.createUploader();
 
-		try {
-			for (let i = 0; i < youTubeIds.length; i++) {
-				const youTubeId = youTubeIds[i];
+		for (let i = 0; i < youTubeIds.length; i++) {
+			const youTubeId = youTubeIds[i];
 
-				console.log(`Start processing ${i + 1}/${youTubeIds.length} ${youTubeId}`);
+			console.log();
+			console.log(`Start processing ${i + 1}/${youTubeIds.length} ${youTubeId}`);
+
+			try {
 				await this.processYouTubeId(youTubeId);
-				console.log(`Finish processing ${youTubeId}`);
+			} catch (error) {
+				console.error(chalk.red(error.message), chalk.red(error.cause));
+
+				// console.error(error.stack);
 			}
-		} catch (error) {
-			throw error;
-		} finally {
+
+			console.log(`Finish processing ${youTubeId}`);
+
 			if (this.application.uploadManager.uploader) await this.application.uploadManager.destroyUploader();
 		}
 	}
@@ -151,6 +157,10 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 			duration: mediaDuration.format("HH:mm:ss"),
 			chapters: chapters.map(chapter => `${chapter.start.format("HH:mm:ss")} - ${chapter.caption}`)
 		}, null, "\t")));
+
+		await this.application.uploadManager.uploadFileStream("description.txt", stream.Readable.from(
+			_.get(youTubeVideoInfo, "meta.info.basic_info.short_description")
+		));
 
 		if (!useMediaCache) fs.removeSync(tempMediaFileName);
 		fs.removeSync(tempMetadataFilePath);
