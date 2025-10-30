@@ -148,24 +148,22 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 
 		if (isBook) {
 			if (isPlaylist) {
-				outputDirectory = path.join(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`, `${videoIndexInPlaylist + 1} - ${videoInfo.title}`);
+				outputDirectory = path.join(filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`), filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}`));
 				outputAudioFileName = "0.m4b";
 			} else {
-				outputDirectory = `${videoInfo.author} - ${videoInfo.title}`;
+				outputDirectory = filenamify(`${videoInfo.author} - ${videoInfo.title}`);
 				outputAudioFileName = "0.m4b";
 			}
 		} else {
 			if (isPlaylist) {
-				outputDirectory = `${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`;
-				outputAudioFileName = `${videoIndexInPlaylist + 1} - ${videoInfo.title}.m4a`;
+				outputDirectory = filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`);
+				outputAudioFileName = filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}.m4a`);
 			} else {
 				outputDirectory = ".";
-				outputAudioFileName = `${videoInfo.author} - ${videoInfo.title}.m4a`;
+				outputAudioFileName = filenamify(`${videoInfo.author} - ${videoInfo.title}.m4a`);
 			}
 		}
 
-		outputDirectory = filenamify(outputDirectory);
-		outputAudioFileName = filenamify(outputAudioFileName);
 		const outputAudioFilePath = path.join(outputDirectory, outputAudioFileName);
 
 		console.log(`Output directory: ${this.application.uploadManager.getAbsolutePath(outputDirectory)}`);
