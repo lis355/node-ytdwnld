@@ -64,7 +64,16 @@ export default class FFMpegManager extends ApplicationComponent {
 		});
 	}
 
-	async extractM4AudioFromMP4Video(videoFilePath, metadataFilePath, outputAudioFilePath) {
+	async injectMetadataToMP4Video(videoFilePath, metadataFilePath, outputVideoFilePath) {
+		const ffmpegProcess = this.createFFMpegProcess(`-i "${videoFilePath}" -i "${metadataFilePath}" -map_metadata 1 -c copy -map 0 -f mp4 -y "${outputVideoFilePath}"`);
+
+		await new Promise((resolve, reject) => {
+			ffmpegProcess.once("exit", code => code === 0 ? resolve() : reject(new Error(code.toString())));
+			ffmpegProcess.once("error", reject);
+		});
+	}
+
+	async extractM4AudioFromMP4VideoAndInjectMetadata(videoFilePath, metadataFilePath, outputAudioFilePath) {
 		const ffmpegProcess = this.createFFMpegProcess(`-i "${videoFilePath}" -i "${metadataFilePath}" -map_metadata 1 -c copy -map 0:a:0 -f mp4 -y "${outputAudioFilePath}"`);
 
 		await new Promise((resolve, reject) => {

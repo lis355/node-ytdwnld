@@ -90,6 +90,7 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 	async processYouTubeVideo(videoInfo, options) {
 		const isBook = Boolean(options.book);
 		const isPlaylist = Boolean(videoInfo.playlistInfo);
+		const isOnlyAudio = Boolean(options.audio);
 		const isNeedInfo = isBook && Boolean(options.info);
 
 		// fs.outputFileSync(path.resolve(this.application.userDataDirectory, "videoInfo.json"), JSON.stringify(videoInfo, null, "\t"));
@@ -128,59 +129,64 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 			);
 		};
 
-		let tempMediaFileName = path.resolve(this.application.tempDirectory, "video.mp4");
+		let tempMediaFilePath = path.resolve(this.application.tempDirectory, "video.mp4");
 
 		const useMediaCache = this.application.isDevelopment;
 		if (useMediaCache) {
 			const videoCacheDirectory = path.resolve(this.application.userDataDirectory, "videoCache");
 			fs.ensureDirSync(videoCacheDirectory);
 
-			tempMediaFileName = path.resolve(videoCacheDirectory, `${videoInfo.id}.mp4`);
+			tempMediaFilePath = path.resolve(videoCacheDirectory, `${videoInfo.id}.mp4`);
 
-			if (!fs.existsSync(tempMediaFileName)) await downloadMedia(tempMediaFileName);
+			if (!fs.existsSync(tempMediaFilePath)) await downloadMedia(tempMediaFilePath);
 		} else {
-			await downloadMedia(tempMediaFileName);
+			await downloadMedia(tempMediaFilePath);
 		}
 
 		let outputDirectory;
-		let outputAudioFileName;
+		let outputMediaFileNameWithoutExtension;
+		const outputMediaFileExtension = isOnlyAudio
+			? (isBook ? "m4b" : "m4a")
+			: "mp4";
 		const videoIndexInPlaylist = isPlaylist ? videoInfo.playlistInfo.videos.findIndex(otherVideoInfo => otherVideoInfo.id === videoInfo.id) : -1;
 
 		if (isBook) {
 			if (isPlaylist) {
 				outputDirectory = path.join(filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`), filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}`));
-				outputAudioFileName = "0.m4b";
+				outputMediaFileNameWithoutExtension = "0";
 			} else {
 				outputDirectory = filenamify(`${videoInfo.author} - ${videoInfo.title}`);
-				outputAudioFileName = "0.m4b";
+				outputMediaFileNameWithoutExtension = "0";
 			}
 		} else {
 			if (isPlaylist) {
 				outputDirectory = filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`);
-				outputAudioFileName = filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}.m4a`);
+				outputMediaFileNameWithoutExtension = filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}`);
 			} else {
 				outputDirectory = ".";
-				outputAudioFileName = filenamify(`${videoInfo.author} - ${videoInfo.title}.m4a`);
+				outputMediaFileNameWithoutExtension = filenamify(`${videoInfo.author} - ${videoInfo.title}`);
 			}
 		}
 
-		const outputAudioFilePath = path.join(outputDirectory, outputAudioFileName);
+		const outputAudioFilePath = path.join(outputDirectory, outputMediaFileNameWithoutExtension) + "." + outputMediaFileExtension;
 
 		console.log(`Output directory: ${this.application.uploadManager.getAbsolutePath(outputDirectory)}`);
 
 		const tempMetadataFilePath = path.resolve(this.application.tempDirectory, "metadata.txt");
 		await this.createMetadata(tempMetadataFilePath, videoInfo, chapters);
 
-		const tempOutputAudioFilePath = path.resolve(this.application.tempDirectory, "video.mp4");
+		const tempOutputMediaFilePath = path.resolve(this.application.tempDirectory, "media." + outputMediaFileExtension);
 
-		await this.application.ffmpegManager.extractM4AudioFromMP4Video(tempMediaFileName, tempMetadataFilePath, tempOutputAudioFilePath);
+		if (isOnlyAudio) await this.application.ffmpegManager.extractM4AudioFromMP4VideoAndInjectMetadata(tempMediaFilePath, tempMetadataFilePath, tempOutputMediaFilePath);
+		else await this.application.ffmpegManager.injectMetadataToMP4Video(tempMediaFilePath, tempMetadataFilePath, tempOutputMediaFilePath);
 
-		const uploadStream = fs.createReadStream(tempOutputAudioFilePath);
-		const tempOutputAudioFileSize = fs.statSync(tempOutputAudioFilePath).size;
+		const outputMediaFileSize = fs.statSync(tempOutputMediaFilePath).size;
 
-		const uploadProgressBar = new ProgressBar(tempOutputAudioFileSize);
+		const uploadStream = fs.createReadStream(tempOutputMediaFilePath);
 
-		console.log("Uploading audio file");
+		const uploadProgressBar = new ProgressBar(outputMediaFileSize);
+
+		console.log("Uploading media file");
 		uploadProgressBar.start();
 
 		await this.application.uploadManager.uploadFileStream(outputAudioFilePath, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
@@ -224,9 +230,9 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 			));
 		}
 
-		if (!useMediaCache) fs.removeSync(tempMediaFileName);
+		if (!useMediaCache) fs.removeSync(tempMediaFilePath);
 		fs.removeSync(tempMetadataFilePath);
-		fs.removeSync(tempOutputAudioFilePath);
+		fs.removeSync(tempOutputMediaFilePath);
 	}
 
 	extractChapters(videoInfo, mediaDuration) {

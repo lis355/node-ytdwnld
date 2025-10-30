@@ -173,7 +173,8 @@ program
 	.option("-a, --audio", "Download only audio")
 	.option("-b, --book", "Place every media to specific folder")
 	.option("-i, --info", "Write video information with description (work only with --book flag)")
-	.option("-t, --telegram", "Upload to telegram bot")
+	// TODO
+	// .option("-t, --telegram", "Upload to telegram bot")
 	.action(async (name, options, command) => {
 		await runApplicationWithActionAndExit(async () => {
 			await application.youTubeVideoDownloader.processYouTubeIds(command.args, options);
