@@ -9,6 +9,29 @@ yarn install
 yarn run installApp -- it will create ytdwnld.bat start file in C:\Windows
 ```
 
+```
+          __      __               __    __
+   __  __/ /_____/ /      ______  / /___/ /
+  / / / / __/ __  / | /| / / __ \/ / __  /
+ / /_/ / /_/ /_/ /| |/ |/ / / / / / /_/ /
+ \__, /\__/\__,_/ |__/|__/_/ /_/_/\__,_/
+/____/                          v 4.2.0
+
+Usage: node-ytdwnld [options] [command]
+
+Application to download youtube videos as audio and upload/save to Filesystem/FTP
+
+Options:
+  -V, --version                  output the version number
+  -h, --help                     display help for command
+
+Commands:
+  config                         Open config file
+  download [options] <items...>  Download media from YouTube
+  bot                            Start telegram bot to download videos
+  help [command]                 display help for command
+```
+
 Set up your config
 ```
 ytdwnld config -- will open config.yaml file
