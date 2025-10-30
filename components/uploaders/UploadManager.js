@@ -9,19 +9,23 @@ import ftp from "basic-ftp";
 import ApplicationComponent from "../app/ApplicationComponent.js";
 
 class Uploader {
+	constructor(application) {
+		this.application = application;
+	}
+
 	async initialize() { }
 	async destroy() { }
 
 	getAbsolutePath(localPath) { }
 
-	async uploadFileStream(filePath, readableStream) { }
+	async uploadFileStream(filePath, readableStream, { onUploadUpdate } = {}) { }
 
 	async openDirectoryInExplorer(directory) { }
 }
 
 class FileSystemUploader extends Uploader {
-	constructor(baseDirectory) {
-		super();
+	constructor(application, baseDirectory) {
+		super(application);
 
 		this.baseDirectory = baseDirectory;
 	}
@@ -47,8 +51,8 @@ class FileSystemUploader extends Uploader {
 }
 
 class FtpUploader extends Uploader {
-	constructor(baseUrl) {
-		super();
+	constructor(application, baseUrl) {
+		super(application);
 
 		this.baseUrl = new URL(baseUrl);
 		this.baseDirectory = this.baseUrl.pathname;
@@ -78,7 +82,7 @@ class FtpUploader extends Uploader {
 		return path.join(this.baseDirectory, localPath);
 	}
 
-	async uploadFileStream(localFilePath, readableStream, onUploadUpdate) {
+	async uploadFileStream(localFilePath, readableStream, { onUploadUpdate } = {}) {
 		const filePath = this.getAbsolutePath(localFilePath);
 		const fileDirectory = path.dirname(filePath);
 
@@ -105,21 +109,46 @@ class FtpUploader extends Uploader {
 	}
 }
 
+class TelegramBotUploader extends Uploader {
+	async initialize() {
+		if (!this.application.telegramBot.created) await this.application.telegramBot.createBot();
+
+		await this.application.telegramBot.launchBot();
+	}
+
+	async destroy() {
+		await this.application.telegramBot.stopBot();
+	}
+
+	getAbsolutePath(localPath) {
+		if (path.isAbsolute(localPath)) throw new Error("Argument must be relative path");
+
+		return ".";
+	}
+
+	async uploadFileStream(localFilePath, readableStream, { videoInfo, mediaStreamInfo, chapters, isOnlyAudio }) {
+		await this.application.telegramBot.sendMedia(videoInfo, mediaStreamInfo, chapters, isOnlyAudio, readableStream);
+	}
+}
+
 export default class YouTubeVideoInfoProvider extends ApplicationComponent {
 	async createUploader() {
 		this.uploader = null;
 
-		if (!this.application.config.outputDirectory) throw new Error("None outputDirectory, set it in config");
+		if (!this.application.config.output) throw new Error("None output, set it in config");
 
 		try {
-			const outputDirectoryUrl = new URL(this.application.config.outputDirectory);
-			if (outputDirectoryUrl.protocol.toLowerCase() === "ftp:") this.uploader = new FtpUploader(outputDirectoryUrl);
+			const outputDirectoryUrl = new URL(this.application.config.output);
+			if (outputDirectoryUrl.protocol.toLowerCase() === "ftp:") this.uploader = new FtpUploader(this.application, outputDirectoryUrl);
 		} catch (_) {
 		}
 
-		if (!this.uploader) this.uploader = new FileSystemUploader(this.application.config.outputDirectory);
+		if (!this.uploader &&
+			this.application.config.output === "telegram") this.uploader = new TelegramBotUploader(this.application);
 
-		console.log(`Using ${this.uploader.constructor.name} uploader with base directory ${this.application.config.outputDirectory}`);
+		if (!this.uploader) this.uploader = new FileSystemUploader(this.application, this.application.config.output);
+
+		console.log(`Using ${this.uploader.constructor.name} uploader with base directory ${this.application.config.output}`);
 		console.log(`${this.uploader.constructor.name} uploader initializing`);
 		await this.uploader.initialize();
 		console.log(`${this.uploader.constructor.name} uploader initialized`);

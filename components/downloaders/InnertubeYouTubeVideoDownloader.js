@@ -54,9 +54,6 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 
 			for (const videoId of playlistInfo.videos.map(item => item.id)) {
 				await processVideoId(videoId, playlistInfo);
-
-				// DEBUG
-				break;
 			}
 		}
 
@@ -143,7 +140,7 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 			await downloadMedia(tempMediaFilePath);
 		}
 
-		let outputDirectory;
+		let output;
 		let outputMediaFileNameWithoutExtension;
 		const outputMediaFileExtension = isOnlyAudio
 			? (isBook ? "m4b" : "m4a")
@@ -152,25 +149,25 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 
 		if (isBook) {
 			if (isPlaylist) {
-				outputDirectory = path.join(filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`), filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}`));
+				output = path.join(filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`), filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}`));
 				outputMediaFileNameWithoutExtension = "0";
 			} else {
-				outputDirectory = filenamify(`${videoInfo.author} - ${videoInfo.title}`);
+				output = filenamify(`${videoInfo.author} - ${videoInfo.title}`);
 				outputMediaFileNameWithoutExtension = "0";
 			}
 		} else {
 			if (isPlaylist) {
-				outputDirectory = filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`);
+				output = filenamify(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`);
 				outputMediaFileNameWithoutExtension = filenamify(`${videoIndexInPlaylist + 1} - ${videoInfo.title}`);
 			} else {
-				outputDirectory = ".";
+				output = ".";
 				outputMediaFileNameWithoutExtension = filenamify(`${videoInfo.author} - ${videoInfo.title}`);
 			}
 		}
 
-		const outputAudioFilePath = path.join(outputDirectory, outputMediaFileNameWithoutExtension) + "." + outputMediaFileExtension;
+		const outputAudioFilePath = path.join(output, outputMediaFileNameWithoutExtension) + "." + outputMediaFileExtension;
 
-		console.log(`Output directory: ${this.application.uploadManager.getAbsolutePath(outputDirectory)}`);
+		console.log(`Output directory: ${this.application.uploadManager.getAbsolutePath(output)}`);
 
 		const tempMetadataFilePath = path.resolve(this.application.tempDirectory, "metadata.txt");
 		await this.createMetadata(tempMetadataFilePath, videoInfo, chapters);
@@ -189,7 +186,10 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 		console.log("Uploading media file");
 		uploadProgressBar.start();
 
-		await this.application.uploadManager.uploadFileStream(outputAudioFilePath, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
+		await this.application.uploadManager.uploadFileStream(outputAudioFilePath, uploadStream, {
+			videoInfo, mediaStreamInfo, chapters, isOnlyAudio,
+			onUploadUpdate: uploadedLength => uploadProgressBar.update(uploadedLength)
+		});
 
 		uploadProgressBar.finish();
 		process.stdout.write(ansiEscapes.eraseLines(3));
@@ -214,7 +214,7 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 		// }
 
 		if (isNeedInfo) {
-			await this.application.uploadManager.uploadFileStream(path.join(outputDirectory, "info.json"), stream.Readable.from(JSON.stringify({
+			await this.application.uploadManager.uploadFileStream(path.join(output, "info.json"), stream.Readable.from(JSON.stringify({
 				id: videoInfo.id,
 				link: "https://www.youtube.com/watch?v=" + videoInfo.id,
 				channel: _.get(videoInfo, "meta.info.basic_info.channel.name"),
@@ -225,7 +225,7 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 				chapters: chapters.map(chapter => `${chapter.start.format("HH:mm:ss")} - ${chapter.caption}`)
 			}, null, "\t")));
 
-			await this.application.uploadManager.uploadFileStream(path.join(outputDirectory, "description.txt"), stream.Readable.from(
+			await this.application.uploadManager.uploadFileStream(path.join(output, "description.txt"), stream.Readable.from(
 				_.get(videoInfo, "meta.info.basic_info.short_description")
 			));
 		}

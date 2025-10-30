@@ -37,7 +37,7 @@ Set up your config
 ytdwnld config -- will open config.yaml file
 ```
 
-Set `outputDirectory` in config, you can use
+Set `output` in config, you can use
 - file system directory like `C:/Podcasts`
 - ftp server like `ftp://192.168.1.104:21/Podcasts`
 
@@ -46,7 +46,7 @@ Use in command line like
 ytdwnld youtubeLink1 youtubeLink2 ...
 ```
 
-It will download video, convert it to audio, split to chapters and upload to `outputDirectory/VIDEO_NAME`
+It will download video, convert it to audio, split to chapters and upload to `output/VIDEO_NAME`
 
 ## Using on Android
 

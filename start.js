@@ -21,10 +21,10 @@ const isDevelopment = Boolean(process.env.VSCODE_INJECTION &&
 	process.env.VSCODE_INSPECTOR_OPTIONS);
 
 const BASE_CONFIG = {
-	outputDirectory: "",
+	output: "",
 	proxy: "",
 	telegramBotToken: "",
-	telegramBotAllowedUserIds: ""
+	telegramBotUserId: ""
 };
 
 class App extends Application {
@@ -116,7 +116,7 @@ class App extends Application {
 		if (isDevelopment) console.warn(chalk.yellow("[isDevelopment]"));
 		console.log(`${chalk.green("[userDataDirectory]:")} ${this.userDataDirectory}`);
 		console.log(`${chalk.green("[config]:")} ${this.configPath}`);
-		console.log(`${chalk.green("[config.outputDirectory]:")} ${this.config.outputDirectory}`);
+		console.log(`${chalk.green("[config.output]:")} ${this.config.output}`);
 	}
 
 	async exit(code = 0) {
@@ -173,8 +173,6 @@ program
 	.option("-a, --audio", "Download only audio")
 	.option("-b, --book", "Place every media to specific folder")
 	.option("-i, --info", "Write video information with description (work only with --book flag)")
-	// TODO
-	// .option("-t, --telegram", "Upload to telegram bot")
 	.action(async (name, options, command) => {
 		await runApplicationWithActionAndExit(async () => {
 			await application.youTubeVideoDownloader.processYouTubeIds(command.args, options);
