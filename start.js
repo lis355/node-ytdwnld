@@ -4,11 +4,11 @@ import path from "node:path";
 import _ from "lodash";
 import { config as dotenv } from "dotenv-flow";
 import * as commander from "commander";
-import filenamify from "filenamify";
 import fs from "fs-extra";
 import YAML from "yaml";
 
 import Application from "./components/app/Application.js";
+import filenamify from "./utils/filenamify.js";
 
 import info from "./package.json" with { type: "json" };
 import chalk from "chalk";
@@ -168,15 +168,15 @@ program
 
 program
 	.command("download", { isDefault: true })
-	.description("Download videos")
-	.argument("<videoIds...>", "youtube video urls or IDs comma separated")
-	// .option("-a, --audio", "Download AAC audio", true)
-	// .option("-s, --subs", "Download subtitles", false)
-	// .option("-c, --chapters", "Split to chapters")
-	// .option("-t --telegram", "Upload to telegram bot")
+	.description("Download media from YouTube")
+	.argument("<items...>", "youtube video urls/ids/playlist urls/ids comma separated")
+	.option("-a, --audio", "Download only audio")
+	.option("-b, --book", "Place every media to specific folder")
+	.option("-i, --info", "Write video information with description (work only with --book flag)")
+	.option("-t, --telegram", "Upload to telegram bot")
 	.action(async (name, options, command) => {
 		await runApplicationWithActionAndExit(async () => {
-			await application.youTubeVideoDownloader.processYouTubeIds(command.args);
+			await application.youTubeVideoDownloader.processYouTubeIds(command.args, options);
 		});
 	});
 

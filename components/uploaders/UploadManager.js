@@ -12,9 +12,11 @@ class Uploader {
 	async initialize() { }
 	async destroy() { }
 
-	async createBaseDirectory(localDirectoryPath) { }
-	async uploadFileStream(fileName, readableStream) { }
-	async openBaseDirectoryInExplorer() { }
+	getAbsolutePath(localPath) { }
+
+	async uploadFileStream(filePath, readableStream) { }
+
+	async openDirectoryInExplorer(directory) { }
 }
 
 class FileSystemUploader extends Uploader {
@@ -24,19 +26,23 @@ class FileSystemUploader extends Uploader {
 		this.baseDirectory = baseDirectory;
 	}
 
-	async createBaseDirectory(localDirectoryPath) {
-		this.baseDirectory = path.resolve(this.baseDirectory, localDirectoryPath);
-		fs.ensureDirSync(this.baseDirectory);
+	getAbsolutePath(localPath) {
+		if (path.isAbsolute(localPath)) throw new Error("Argument must be relative path");
+
+		return path.join(this.baseDirectory, localPath);
 	}
 
-	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
-		const outputFileStream = fs.createWriteStream(path.resolve(this.baseDirectory, fileName));
+	async uploadFileStream(localFilePath, readableStream) {
+		const filePath = this.getAbsolutePath(localFilePath);
+		fs.ensureDirSync(path.dirname(filePath));
 
-		await streamPromises.finished(readableStream.pipe(outputFileStream));
+		await streamPromises.finished(readableStream.pipe(fs.createWriteStream(filePath)));
 	}
 
-	async openBaseDirectoryInExplorer() {
-		childProcess.spawn("explorer.exe", [this.baseDirectory]);
+	async openDirectoryInExplorer(localDirectory) {
+		const directory = this.getAbsolutePath(localDirectory);
+
+		childProcess.spawn("explorer.exe", [directory]);
 	}
 }
 
@@ -44,7 +50,9 @@ class FtpUploader extends Uploader {
 	constructor(baseUrl) {
 		super();
 
-		this.baseUrl = baseUrl;
+		this.baseUrl = new URL(baseUrl);
+		this.baseDirectory = this.baseUrl.pathname;
+		this.baseUrl.pathname = "";
 	}
 
 	async initialize() {
@@ -64,14 +72,19 @@ class FtpUploader extends Uploader {
 		this.client = null;
 	}
 
-	async createBaseDirectory(localDirectoryPath) {
-		this.baseDirectory = this.baseUrl.pathname + "/" + localDirectoryPath;
+	getAbsolutePath(localPath) {
+		if (path.isAbsolute(localPath)) throw new Error("Argument must be relative path");
 
-		await this.client.ensureDir(this.baseDirectory);
-		await this.client.cd("/");
+		return path.join(this.baseDirectory, localPath);
 	}
 
-	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
+	async uploadFileStream(localFilePath, readableStream, onUploadUpdate) {
+		const filePath = this.getAbsolutePath(localFilePath);
+		const fileDirectory = path.dirname(filePath);
+
+		await this.client.cd("/");
+		await this.client.ensureDir(fileDirectory);
+
 		this.client.trackProgress(undefined);
 
 		try {
@@ -81,14 +94,14 @@ class FtpUploader extends Uploader {
 				});
 			}
 
-			await this.client.uploadFrom(readableStream, this.baseDirectory + "/" + fileName);
+			await this.client.uploadFrom(readableStream, filePath);
 		} finally {
 			this.client.trackProgress(undefined);
 		}
 	}
 
-	async openBaseDirectoryInExplorer() {
-		childProcess.spawn("explorer.exe", [this.baseUrl.origin + this.baseDirectory]);
+	async openDirectoryInExplorer(localDirectory) {
+		childProcess.spawn("explorer.exe", [path.posix.join(this.baseUrl.origin, path.dirname(this.getAbsolutePath(localDirectory)))]);
 	}
 }
 
@@ -106,7 +119,7 @@ export default class YouTubeVideoInfoProvider extends ApplicationComponent {
 
 		if (!this.uploader) this.uploader = new FileSystemUploader(this.application.config.outputDirectory);
 
-		console.log(`Using ${this.uploader.constructor.name} uploader`);
+		console.log(`Using ${this.uploader.constructor.name} uploader with base directory ${this.application.config.outputDirectory}`);
 		console.log(`${this.uploader.constructor.name} uploader initializing`);
 		await this.uploader.initialize();
 		console.log(`${this.uploader.constructor.name} uploader initialized`);
@@ -119,15 +132,15 @@ export default class YouTubeVideoInfoProvider extends ApplicationComponent {
 		this.uploader = null;
 	}
 
-	async createBaseDirectory(localDirectoryPath) {
-		await this.uploader.createBaseDirectory(localDirectoryPath);
+	getAbsolutePath(localPath) {
+		return this.uploader.getAbsolutePath(localPath);
 	}
 
-	async uploadFileStream(fileName, readableStream, onUploadUpdate) {
-		await this.uploader.uploadFileStream(fileName, readableStream, onUploadUpdate);
+	async uploadFileStream(filePath, readableStream, onUploadUpdate) {
+		await this.uploader.uploadFileStream(filePath, readableStream, onUploadUpdate);
 	}
 
-	async openBaseDirectoryInExplorer() {
-		await this.uploader.openBaseDirectoryInExplorer();
+	async openDirectoryInExplorer() {
+		await this.uploader.openDirectoryInExplorer();
 	}
 }

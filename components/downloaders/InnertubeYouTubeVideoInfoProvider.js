@@ -10,7 +10,6 @@ import undici from "undici";
 
 import ApplicationComponent from "../app/ApplicationComponent.js";
 import dayjs from "../../utils/dayjs.js";
-import getYouTubeId from "../../utils/getYouTubeId.js";
 
 // https://github.com/LuanRT/BgUtils/blob/main/examples/node/innertube-challenge-fetcher-example.ts
 
@@ -239,36 +238,72 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		this.integrityTokenBasedMinter = await bgutils.BG.WebPoMinter.create({ integrityToken: integrityToken[0] }, webPoSignalOutput);
 	}
 
-	async generatePoTokens(videoId) {
-		const contentPoToken = await this.integrityTokenBasedMinter.mintAsWebsafeString(videoId);
+	async generatePoTokens(id) {
+		const contentPoToken = await this.integrityTokenBasedMinter.mintAsWebsafeString(id);
 		const sessionPoToken = await this.integrityTokenBasedMinter.mintAsWebsafeString(this.innertube.session.context.client.visitorData || "");
 
 		return { contentPoToken, sessionPoToken };
 	}
 
 	setPoTokens(poTokens) {
-		try {
-			this.innertube.session["po_token"] = poTokens.contentPoToken;
-			this.innertube.session.player["po_token"] = poTokens.sessionPoToken;
-		} catch (error) {
-			console.error("[InnertubeYouTubeVideoInfoProvider]: poToken generation failed", error);
-
-			throw error;
-		}
+		this.poTokens = poTokens;
+		this.innertube.session["po_token"] = this.poTokens.contentPoToken;
+		this.innertube.session.player["po_token"] = this.poTokens.sessionPoToken;
 	}
 
-	parseVideoId(text) {
-		if (/^[^#\&\?]{11}$/.test(text)) return text;
+	parseId(str) {
+		const id = {
+			parsed: false,
+			type: "video",
+			id: str
+		};
 
-		const videoId = getYouTubeId((text || "").trim());
-		if (!videoId) throw new Error("Bad url or text");
+		function success(type, strId) {
+			id.parsed = true;
+			id.type = type;
+			id.id = strId;
 
-		return videoId;
+			return id;
+		}
+
+		try {
+			const url = new URL(str);
+
+			let variant;
+
+			if (url.host.toLowerCase().endsWith("youtube.com")) {
+				variant = url.searchParams.get("v");
+				if (this.testVideoId(variant)) return success("video", variant);
+
+				variant = url.searchParams.get("list");
+				if (this.testPlaylistId(variant)) return success("playlist", variant);
+			} else if (url.host.toLowerCase().endsWith("youtu.be")) {
+				variant = url.pathname.split("/")[1];
+				if (this.testVideoId(variant)) return success("video", variant);
+			}
+		} catch (_) {
+		}
+
+		if (this.testVideoId(str)) return success("video", str);
+		if (this.testPlaylistId(str)) return success("playlist", str);
+
+		return id;
+	}
+
+	// A YouTube video ID is a unique 11-character string consisting of uppercase letters, lowercase letters, numbers, hyphens, and underscores. 
+	// This ID is a core part of a video's URL and is used to identify the video, commonly found after v= or vi= in the URL or after youtu.be/. 
+	testVideoId(str) {
+		return /^[A-Za-z0-9_-]{11}$/.test(str);
+	}
+
+	// A standard YouTube playlist ID is a 32-character string, typically starting with "PL", that follows the pattern PL[A-Za-z0-9_-]{32}.
+	//  This ID is the unique identifier for a public or private playlist and can be found in the URL of a playlist, after the list= parameter.
+	testPlaylistId(str) {
+		return /^PL[A-Za-z0-9_-]{32}$/.test(str);
 	}
 
 	async getVideoInfo(videoId) {
-		const poTokens = await this.generatePoTokens(videoId);
-		this.setPoTokens(poTokens);
+		this.setPoTokens(await this.generatePoTokens(videoId));
 
 		const info = await this.innertube.getInfo(videoId);
 		const mwebInfo = await this.innertube.getBasicInfo(videoId, "MWEB");
@@ -285,6 +320,8 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 
 		const videoInfo = {
 			meta: {
+				poTokens: this.poTokens,
+
 				info,
 				mwebInfo
 			},
@@ -349,15 +386,44 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 		return videoInfo;
 	}
 
+	async getPlaylistInfo(playlistId) {
+		this.setPoTokens(await this.generatePoTokens(playlistId));
+
+		const info = await this.innertube.getPlaylist(playlistId);
+
+		const playlistInfo = {
+			meta: {
+				poTokens: this.poTokens,
+
+				info
+			},
+
+			id: playlistId,
+			author: info.info.author.name,
+			channel: info.info.author.url,
+			title: info.info.title,
+
+			videos: info.items.map(item => ({
+				id: item.id,
+				title: item.title.text
+			}))
+		};
+
+		return playlistInfo;
+	}
+
 	async getMediaStreamInfo(videoInfo, options) {
 		const format = videoInfo.meta.info.chooseFormat(options);
 		format.type = format["mime_type"];
 		format.size = format["content_length"];
+		format.duration = dayjs.duration(format["approx_duration_ms"]);
 
 		return format;
 	}
 
 	async getMediaStream(videoInfo, options) {
+		this.setPoTokens(videoInfo.meta.poTokens);
+
 		return stream.Readable.fromWeb(await videoInfo.meta.info.download(options));
 	}
 

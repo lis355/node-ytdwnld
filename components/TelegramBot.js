@@ -6,11 +6,11 @@ import streamСonsumers from "node:stream/consumers";
 
 import { Telegraf, Input } from "telegraf";
 import async from "async";
-import filenamify from "filenamify";
 import fs from "fs-extra";
 
 import ApplicationComponent from "./app/ApplicationComponent.js";
 import dayjs from "../utils/dayjs.js";
+import filenamify from "../utils/filenamify.js";
 import SRTParser from "../utils/srt.js";
 
 const MAX_MESSAGE_LENGTH = 4096;
@@ -39,7 +39,7 @@ export default class TelegramBot extends ApplicationComponent {
 		});
 	}
 
-	async createBot() {
+	async createAndLaunchBot() {
 		const token = this.application.config.telegramBotToken;
 		if (!token) {
 			console.error("Telegram bot token is not defined in config file as option \"telegramBotToken\", please, edit config file");

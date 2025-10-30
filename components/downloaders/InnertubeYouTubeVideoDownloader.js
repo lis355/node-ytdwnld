@@ -6,53 +6,94 @@ import streamPromises from "node:stream/promises";
 import _ from "lodash";
 import ansiEscapes from "ansi-escapes";
 import chalk from "chalk";
-import filenamify from "filenamify";
 import fs from "fs-extra";
 
 import ApplicationComponent from "../app/ApplicationComponent.js";
 import dayjs from "../../utils/dayjs.js";
+import filenamify from "../../utils/filenamify.js";
 import ProgressBar from "../../utils/ProgressBar.js";
 import progressPassThroughStream from "../../utils/progressPassThroughStream.js";
-import SRTParser from "../../utils/srt.js";
+// import SRTParser from "../../utils/srt.js";
 
 export default class InnertubeYouTubeVideoDownloader extends ApplicationComponent {
 	async initialize() {
 		await super.initialize();
 	}
 
-	async processYouTubeIds(args) {
-		const youTubeIds = Array.from(new Set(args.map(arg => arg.split(",")).flat().map(s => s.trim()).filter(Boolean)))
-			.map(videoUrlOrId => this.application.youTubeVideoInfoProvider.parseVideoId(videoUrlOrId));
+	async processYouTubeIds(args, options) {
+		const infos = _.uniqBy(
+			args.map(arg => arg.split(",")).flat().map(s => s.trim()).filter(Boolean)
+				.map(str => this.application.youTubeVideoInfoProvider.parseId(str))
+				.filter(info => info.parsed),
+			info => info.id
+		);
 
-		console.log(`Total ${youTubeIds.length} videos: ${youTubeIds.join(", ")}`);
+		const videoIds = infos.filter(info => info.type === "video").map(info => info.id);
+		const playlistIds = infos.filter(info => info.type === "playlist").map(info => info.id);
 
-		await this.application.uploadManager.createUploader();
+		console.log(`Total ${videoIds.length} videos, ${playlistIds.length} playlists`);
 
-		for (let i = 0; i < youTubeIds.length; i++) {
-			const youTubeId = youTubeIds[i];
+		const playlistInfos = [];
+		const allVideoInfos = [];
 
-			console.log();
-			console.log(`Start processing ${i + 1}/${youTubeIds.length} ${youTubeId}`);
+		const processVideoId = async (videoId, playlistInfo = null) => {
+			const videoInfo = await this.application.youTubeVideoInfoProvider.getVideoInfo(videoId);
+			allVideoInfos.push(videoInfo);
 
-			try {
-				await this.processYouTubeId(youTubeId);
-			} catch (error) {
-				console.error(chalk.red(error.message), chalk.red(error.cause));
+			videoInfo.playlistInfo = playlistInfo;
 
-				// console.error(error.stack);
+			if (playlistInfo) console.log(`  - ${videoInfo.title}`);
+			else console.log(`${videoInfo.author} | ${videoInfo.title}`);
+		};
+
+		for (const playlistId of playlistIds) {
+			const playlistInfo = await this.application.youTubeVideoInfoProvider.getPlaylistInfo(playlistId);
+			playlistInfos.push(playlistInfo);
+
+			console.log(`[${playlistInfo.author} | ${playlistInfo.title}] (${playlistInfo.videos.length} videos)`);
+
+			for (const videoId of playlistInfo.videos.map(item => item.id)) {
+				await processVideoId(videoId, playlistInfo);
+
+				// DEBUG
+				break;
+			}
+		}
+
+		for (const videoId of videoIds) {
+			await processVideoId(videoId);
+		}
+
+		try {
+			await this.application.uploadManager.createUploader();
+
+			for (let i = 0; i < allVideoInfos.length; i++) {
+				const videoInfo = allVideoInfos[i];
+
+				console.log();
+				console.log(`Start processing ${i + 1}/${allVideoInfos.length}`);
+
+				await this.processYouTubeVideo(videoInfo, options);
+
+				console.log("Finish processing");
 			}
 
-			console.log(`Finish processing ${youTubeId}`);
-
-			if (this.application.uploadManager.uploader) await this.application.uploadManager.destroyUploader();
+			// if (!this.application.isDevelopment) await this.application.uploadManager.openDirectoryInExplorer();
+		} catch (error) {
+			console.error(chalk.red(error.message), chalk.red(error.cause));
+			// console.error(error.stack);
+		} finally {
+			await this.application.uploadManager.destroyUploader();
 		}
 	}
 
-	async processYouTubeId(youTubeId) {
-		const youTubeVideoInfo = await this.application.youTubeVideoInfoProvider.getVideoInfo(youTubeId);
+	async processYouTubeVideo(videoInfo, options) {
+		const isBook = Boolean(options.book);
+		const isPlaylist = Boolean(videoInfo.playlistInfo);
+		const isNeedInfo = isBook && Boolean(options.info);
 
-		// fs.outputFileSync(path.resolve(this.application.userDataDirectory, "youTubeVideoInfo.json"), JSON.stringify(youTubeVideoInfo, null, "\t"));
-		// const youTubeVideoInfo = JSON.parse(fs.readFileSync(path.resolve(this.application.userDataDirectory, "youTubeVideoInfo.json")).toString());
+		// fs.outputFileSync(path.resolve(this.application.userDataDirectory, "videoInfo.json"), JSON.stringify(videoInfo, null, "\t"));
+		// const videoInfo = JSON.parse(fs.readFileSync(path.resolve(this.application.userDataDirectory, "videoInfo.json")).toString());
 
 		// select first 360p mp4 video
 		const formatOptions = {};
@@ -65,15 +106,14 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 		// 	quality: "best"
 		// };
 
-		const mediaStreamInfo = await this.application.youTubeVideoInfoProvider.getMediaStreamInfo(youTubeVideoInfo, formatOptions);
-		const mediaDuration = dayjs.duration(mediaStreamInfo["approx_duration_ms"]);
-		console.log(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title} (${mediaDuration.format("HH:mm:ss")})`);
+		const mediaStreamInfo = await this.application.youTubeVideoInfoProvider.getMediaStreamInfo(videoInfo, formatOptions);
+		console.log(`${videoInfo.author} - ${videoInfo.title} (${mediaStreamInfo.duration.format("HH:mm:ss")})`);
 
-		const chapters = this.extractChapters(youTubeVideoInfo, mediaDuration);
+		const chapters = this.extractChapters(videoInfo, mediaStreamInfo.duration);
 		for (let i = 0; i < chapters.length; i++) console.log(`${(i + 1).toString().padStart(3, "0")} - ${chapters[i].caption}`);
 
 		const downloadMedia = async mediaFileName => {
-			const mediaDownloadingStream = await this.application.youTubeVideoInfoProvider.getMediaStream(youTubeVideoInfo, formatOptions);
+			const mediaDownloadingStream = await this.application.youTubeVideoInfoProvider.getMediaStream(videoInfo, formatOptions);
 
 			const mediaDownloadingProgressStream = progressPassThroughStream({
 				dataLength: mediaStreamInfo.size,
@@ -88,30 +128,52 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 			);
 		};
 
-		let tempMediaFileName = path.resolve(this.application.tempDirectory, "0.mp4");
+		let tempMediaFileName = path.resolve(this.application.tempDirectory, "video.mp4");
 
 		const useMediaCache = this.application.isDevelopment;
 		if (useMediaCache) {
 			const videoCacheDirectory = path.resolve(this.application.userDataDirectory, "videoCache");
 			fs.ensureDirSync(videoCacheDirectory);
 
-			tempMediaFileName = path.resolve(videoCacheDirectory, `${youTubeId}.mp4`);
+			tempMediaFileName = path.resolve(videoCacheDirectory, `${videoInfo.id}.mp4`);
 
 			if (!fs.existsSync(tempMediaFileName)) await downloadMedia(tempMediaFileName);
 		} else {
 			await downloadMedia(tempMediaFileName);
 		}
 
-		const mediaDirectoryName = filenamify(`${youTubeVideoInfo.author} - ${youTubeVideoInfo.title}`, { replacement: "", maxLength: 128 });
+		let outputDirectory;
+		let outputAudioFileName;
+		const videoIndexInPlaylist = isPlaylist ? videoInfo.playlistInfo.videos.findIndex(otherVideoInfo => otherVideoInfo.id === videoInfo.id) : -1;
 
-		await this.application.uploadManager.createBaseDirectory(mediaDirectoryName);
+		if (isBook) {
+			if (isPlaylist) {
+				outputDirectory = path.join(`${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`, `${videoIndexInPlaylist + 1} - ${videoInfo.title}`);
+				outputAudioFileName = "0.m4b";
+			} else {
+				outputDirectory = `${videoInfo.author} - ${videoInfo.title}`;
+				outputAudioFileName = "0.m4b";
+			}
+		} else {
+			if (isPlaylist) {
+				outputDirectory = `${videoInfo.playlistInfo.author} - ${videoInfo.playlistInfo.title}`;
+				outputAudioFileName = `${videoIndexInPlaylist + 1} - ${videoInfo.title}.m4a`;
+			} else {
+				outputDirectory = ".";
+				outputAudioFileName = `${videoInfo.author} - ${videoInfo.title}.m4a`;
+			}
+		}
+
+		outputDirectory = filenamify(outputDirectory);
+		outputAudioFileName = filenamify(outputAudioFileName);
+		const outputAudioFilePath = path.join(outputDirectory, outputAudioFileName);
+
+		console.log(`Output directory: ${this.application.uploadManager.getAbsolutePath(outputDirectory)}`);
 
 		const tempMetadataFilePath = path.resolve(this.application.tempDirectory, "metadata.txt");
-		await this.createMetadata(tempMetadataFilePath, youTubeVideoInfo, chapters);
+		await this.createMetadata(tempMetadataFilePath, videoInfo, chapters);
 
-		const outputAudioFileNameWithoutExtension = "0";
-		const outputAudioFileName = outputAudioFileNameWithoutExtension + ".m4b";
-		const tempOutputAudioFilePath = path.resolve(this.application.tempDirectory, outputAudioFileName);
+		const tempOutputAudioFilePath = path.resolve(this.application.tempDirectory, "video.mp4");
 
 		await this.application.ffmpegManager.extractM4AudioFromMP4Video(tempMediaFileName, tempMetadataFilePath, tempOutputAudioFilePath);
 
@@ -123,73 +185,73 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 		console.log("Uploading audio file");
 		uploadProgressBar.start();
 
-		await this.application.uploadManager.uploadFileStream(outputAudioFileName, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
+		await this.application.uploadManager.uploadFileStream(outputAudioFilePath, uploadStream, uploadedLength => { uploadProgressBar.update(uploadedLength); });
 
 		uploadProgressBar.finish();
 		process.stdout.write(ansiEscapes.eraseLines(3));
 
-		if (youTubeVideoInfo.subtitles) {
-			console.log("Downloading subtitles");
+		// if (videoInfo.subtitles) {
+		// 	console.log("Downloading subtitles");
 
-			const subtitlesStream = await this.application.youTubeVideoInfoProvider.getSubtitlesStream(youTubeVideoInfo);
-			const subtitlesStr = await streamСonsumers.text(subtitlesStream);
+		// 	const subtitlesStream = await this.application.youTubeVideoInfoProvider.getSubtitlesStream(videoInfo);
+		// 	const subtitlesStr = await streamСonsumers.text(subtitlesStream);
 
-			const subtitles = SRTParser.parse(subtitlesStr);
-			if (subtitles.length > 0) {
-				await this.application.uploadManager.uploadFileStream(`${mediaDirectoryName}.txt`, stream.Readable.from(this.getSubtitlesFormattedText(subtitles, chapters)));
+		// 	const subtitles = SRTParser.parse(subtitlesStr);
+		// 	if (subtitles.length > 0) {
+		// 		await this.application.uploadManager.uploadFileStream(`${mediaDirectoryName}.txt`, stream.Readable.from(this.getSubtitlesFormattedText(subtitles, chapters)));
 
-				this.fixSubtitles(subtitles);
-				await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(SRTParser.format(subtitles)));
+		// 		this.fixSubtitles(subtitles);
+		// 		await this.application.uploadManager.uploadFileStream(outputAudioFileNameWithoutExtension + ".srt", stream.Readable.from(SRTParser.format(subtitles)));
 
-				console.log("Done");
-			} else {
-				console.log("No subtitles");
-			}
+		// 		console.log("Done");
+		// 	} else {
+		// 		console.log("No subtitles");
+		// 	}
+		// }
+
+		if (isNeedInfo) {
+			await this.application.uploadManager.uploadFileStream(path.join(outputDirectory, "info.json"), stream.Readable.from(JSON.stringify({
+				id: videoInfo.id,
+				link: "https://www.youtube.com/watch?v=" + videoInfo.id,
+				channel: _.get(videoInfo, "meta.info.basic_info.channel.name"),
+				channelLink: _.get(videoInfo, "meta.info.basic_info.channel.url"),
+				author: videoInfo.author,
+				title: videoInfo.title,
+				duration: mediaStreamInfo.duration.format("HH:mm:ss"),
+				chapters: chapters.map(chapter => `${chapter.start.format("HH:mm:ss")} - ${chapter.caption}`)
+			}, null, "\t")));
+
+			await this.application.uploadManager.uploadFileStream(path.join(outputDirectory, "description.txt"), stream.Readable.from(
+				_.get(videoInfo, "meta.info.basic_info.short_description")
+			));
 		}
-
-		await this.application.uploadManager.uploadFileStream("info.json", stream.Readable.from(JSON.stringify({
-			id: youTubeVideoInfo.id,
-			link: "https://www.youtube.com/watch?v=" + youTubeVideoInfo.id,
-			channel: _.get(youTubeVideoInfo, "meta.info.basic_info.channel.name"),
-			channelLink: _.get(youTubeVideoInfo, "meta.info.basic_info.channel.url"),
-			author: youTubeVideoInfo.author,
-			title: youTubeVideoInfo.title,
-			duration: mediaDuration.format("HH:mm:ss"),
-			chapters: chapters.map(chapter => `${chapter.start.format("HH:mm:ss")} - ${chapter.caption}`)
-		}, null, "\t")));
-
-		await this.application.uploadManager.uploadFileStream("description.txt", stream.Readable.from(
-			_.get(youTubeVideoInfo, "meta.info.basic_info.short_description")
-		));
 
 		if (!useMediaCache) fs.removeSync(tempMediaFileName);
 		fs.removeSync(tempMetadataFilePath);
 		fs.removeSync(tempOutputAudioFilePath);
-
-		// if (!this.application.isDevelopment) await this.application.uploadManager.openBaseDirectoryInExplorer();
 	}
 
-	extractChapters(youTubeVideoInfo, mediaDuration) {
+	extractChapters(videoInfo, mediaDuration) {
 		const chapters = [];
 
-		if (youTubeVideoInfo.timings.length > 0 &&
-			youTubeVideoInfo.timings[0].timing.asSeconds() !== 0) chapters.push({ start: dayjs.duration({ seconds: 0 }), finish: youTubeVideoInfo.timings[0].timing, caption: youTubeVideoInfo.title });
+		if (videoInfo.timings.length > 0 &&
+			videoInfo.timings[0].timing.asSeconds() !== 0) chapters.push({ start: dayjs.duration({ seconds: 0 }), finish: videoInfo.timings[0].timing, caption: videoInfo.title });
 
-		for (let i = 0; i < youTubeVideoInfo.timings.length; i++) {
-			const timing = youTubeVideoInfo.timings[i];
-			const nextTiming = i !== youTubeVideoInfo.timings.length - 1 ? youTubeVideoInfo.timings[i + 1] : null;
+		for (let i = 0; i < videoInfo.timings.length; i++) {
+			const timing = videoInfo.timings[i];
+			const nextTiming = i !== videoInfo.timings.length - 1 ? videoInfo.timings[i + 1] : null;
 			chapters.push({ start: timing.timing, finish: nextTiming?.timing || mediaDuration, caption: timing.caption });
 		}
 
 		return chapters;
 	}
 
-	async createMetadata(metadataFilePath, youTubeVideoInfo, chapters) {
+	async createMetadata(metadataFilePath, videoInfo, chapters) {
 		const metadataStream = fs.createWriteStream(metadataFilePath);
 
 		metadataStream.write(`;FFMETADATA1
-title=${youTubeVideoInfo.title}
-artist=${youTubeVideoInfo.author}
+title=${videoInfo.title}
+artist=${videoInfo.author}
 
 `);
 
@@ -242,7 +304,6 @@ title=${chapter.caption}
 	}
 
 	getSubtitlesFormattedText(subtitles, chapters) {
-
 		const parts = [];
 
 		let chapterIndex = 0;
