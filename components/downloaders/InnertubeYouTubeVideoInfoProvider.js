@@ -38,6 +38,36 @@ youtubei.Parser.setParserErrorHandler(error => {
 	// console.error(error);
 });
 
+class LocalStoragePolyFill {
+	constructor() {
+		this.data = new Map();
+	}
+
+	getItem(key) {
+		return this.data.get(key) || null;
+	}
+
+	setItem(key, value) {
+		this.data.set(key, String(value));
+	}
+
+	removeItem(key) {
+		this.data.delete(key);
+	}
+
+	clear() {
+		this.data.clear();
+	}
+
+	key(index) {
+		return Array.from(this.data.keys())[index] || null;
+	}
+
+	get length() {
+		return this.data.size;
+	}
+}
+
 function capitalize(str) {
 	return str.substring(0, 1).toUpperCase() + str.substring(1);
 }
@@ -195,6 +225,18 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			location: dom.window.location,
 			origin: dom.window.origin
 		});
+
+		// NOTE since nodejs 25
+		// https://github.com/nodejs/node/issues/60704
+		// Web Storage API in Node.js: Recent versions of Node.js have introduced experimental support for the Web Storage API.
+		//  However, when using localStorage in Node.js, it requires a file path to store the data, as there's 
+		// no browser-like persistent storage mechanism.
+		try {
+			global.localStorage = global.localStorage || new LocalStoragePolyFill();
+		} catch (error) {
+			if (error.message === "Cannot initialize local storage without a `--localstorage-file` path") global.localStorage = new LocalStoragePolyFill();
+			else throw error;
+		}
 
 		if (!Reflect.has(globalThis, "navigator")) Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator });
 

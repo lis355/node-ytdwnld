@@ -4,14 +4,15 @@ import path from "node:path";
 import _ from "lodash";
 import { config as dotenv } from "dotenv-flow";
 import * as commander from "commander";
+import chalk from "chalk";
 import fs from "fs-extra";
 import YAML from "yaml";
 
+import * as platform from "./utils/platform.js";
 import Application from "./components/app/Application.js";
 import filenamify from "./utils/filenamify.js";
 
 import info from "./package.json" with { type: "json" };
-import chalk from "chalk";
 
 dotenv({
 	path: import.meta.dirname
@@ -76,7 +77,7 @@ class App extends Application {
 	createUserDataDirectory() {
 		this.userDataDirectory = this.isDevelopment
 			? path.resolve(import.meta.dirname, "userData")
-			: path.resolve(process.env.APPDATA, filenamify(this.info.name));
+			: path.resolve(platform.getApplicationDataDirectory(), filenamify(this.info.name));
 
 		fs.ensureDirSync(this.userDataDirectory);
 	}
