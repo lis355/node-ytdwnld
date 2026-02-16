@@ -1,4 +1,3 @@
-import childProcess from "node:child_process";
 import path from "node:path";
 
 import _ from "lodash";
@@ -11,6 +10,7 @@ import YAML from "yaml";
 import * as platform from "./utils/platform.js";
 import Application from "./components/app/Application.js";
 import filenamify from "./utils/filenamify.js";
+import openDirectoryInExplorer from "./utils/openDirectoryInExplorer.js";
 
 import info from "./package.json" with { type: "json" };
 
@@ -25,7 +25,8 @@ const BASE_CONFIG = {
 	output: "",
 	proxy: "",
 	telegramBotToken: "",
-	telegramBotUserId: ""
+	telegramBotUserIds: [""],
+	telegramBotSocks5Proxy: ""
 };
 
 class App extends Application {
@@ -161,9 +162,7 @@ program
 	.description("Open config file")
 	.action(async () => {
 		await runApplicationWithActionAndExit(async () => {
-			const process = childProcess.spawn("explorer.exe", [application.configPath]);
-
-			await new Promise(resolve => process.once("exit", resolve));
+			await openDirectoryInExplorer(application.configPath);
 		});
 	});
 
@@ -187,6 +186,7 @@ program
 		await runApplication();
 
 		await application.telegramBot.createBot();
+		await application.telegramBot.launchBot();
 	});
 
 program

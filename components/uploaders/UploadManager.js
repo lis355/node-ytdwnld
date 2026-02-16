@@ -1,4 +1,3 @@
-import childProcess from "node:child_process";
 import path from "node:path";
 import streamPromises from "node:stream/promises";
 
@@ -7,6 +6,7 @@ import fs from "fs-extra";
 import ftp from "basic-ftp";
 
 import ApplicationComponent from "../app/ApplicationComponent.js";
+import openDirectoryInExplorer from "../../utils/openDirectoryInExplorer.js";
 
 class Uploader {
 	constructor(application) {
@@ -44,9 +44,7 @@ class FileSystemUploader extends Uploader {
 	}
 
 	async openDirectoryInExplorer(localDirectory) {
-		const directory = this.getAbsolutePath(localDirectory);
-
-		childProcess.spawn("explorer.exe", [directory]);
+		await openDirectoryInExplorer(this.getAbsolutePath(localDirectory));
 	}
 }
 
@@ -57,6 +55,9 @@ class FtpUploader extends Uploader {
 		this.baseUrl = new URL(baseUrl);
 		this.baseDirectory = this.baseUrl.pathname;
 		this.baseUrl.pathname = "";
+
+		this.host = this.baseUrl.hostname;
+		this.port = Number(this.baseUrl.port);
 	}
 
 	async initialize() {
@@ -65,8 +66,8 @@ class FtpUploader extends Uploader {
 		// client.ftp.verbose = true;
 
 		await this.client.access({
-			host: this.baseUrl.hostname,
-			port: Number(this.baseUrl.port)
+			host: this.host,
+			port: this.port
 		});
 	}
 
@@ -105,7 +106,10 @@ class FtpUploader extends Uploader {
 	}
 
 	async openDirectoryInExplorer(localDirectory) {
-		childProcess.spawn("explorer.exe", [path.posix.join(this.baseUrl.origin, path.dirname(this.getAbsolutePath(localDirectory)))]);
+		throw new Error("Not implemented");
+
+		// `ftp://${this.info.host}:${this.info.port}${albumDestinationFolder}`);
+		// await openDirectoryInExplorer(this.getAbsolutePath(localDirectory));
 	}
 }
 
