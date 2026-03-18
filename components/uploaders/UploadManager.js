@@ -27,6 +27,8 @@ class FileSystemUploader extends Uploader {
 	constructor(application, baseDirectory) {
 		super(application);
 
+		if (!path.isAbsolute(localPath)) path.join(process.cwd(), baseDirectory);
+
 		this.baseDirectory = baseDirectory;
 	}
 

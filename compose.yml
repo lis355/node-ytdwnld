@@ -1,0 +1,7 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - /opt/node-ytdwnld/config.yaml:/app/userData/config.yaml:ro
+

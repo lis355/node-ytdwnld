@@ -15,7 +15,7 @@ import openDirectoryInExplorer from "./utils/openDirectoryInExplorer.js";
 import info from "./package.json" with { type: "json" };
 
 dotenv({
-	path: import.meta.dirname
+	path: process.cwd()
 });
 
 const isDevelopment = Boolean(process.env.VSCODE_INJECTION &&
@@ -76,9 +76,7 @@ class App extends Application {
 	}
 
 	createUserDataDirectory() {
-		this.userDataDirectory = this.isDevelopment
-			? path.resolve(import.meta.dirname, "userData")
-			: path.resolve(platform.getApplicationDataDirectory(), filenamify(this.info.name));
+		this.userDataDirectory = path.resolve(process.cwd(), "userData");
 
 		fs.ensureDirSync(this.userDataDirectory);
 	}
