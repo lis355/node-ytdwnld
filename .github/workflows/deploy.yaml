@@ -1,0 +1,65 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+env:
+  APP_NAME: node-ytdwnld
+  IMAGE_NAME: node-ytdwnld
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }} .
+
+      - name: Save Docker image
+        run: |
+          docker save ${{ env.IMAGE_NAME }} | gzip > ${{ env.IMAGE_NAME }}.tar.gz
+
+      - name: Copy image to ${{ secrets.SSH_HOST }}
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "${{ env.IMAGE_NAME }}.tar.gz"
+          target: "~/docker/images/"
+
+      - name: Copy compose.yaml to ${{ secrets.SSH_HOST }}
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "compose.yaml"
+          target: "/opt/${{ env.APP_NAME }}"
+
+      - name: Deploy on ${{ secrets.SSH_HOST }}
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/${{ env.APP_NAME }}
+
+            docker load < ~/docker/images/${{ env.IMAGE_NAME }}.tar.gz
+            docker compose down || true
+            docker compose up -d --remove-orphans
+            docker image prune -f
