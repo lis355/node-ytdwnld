@@ -1,6 +1,6 @@
 services:
   app:
-    build: .
+    image: node-ytdwnld
     restart: unless-stopped
     volumes:
       - /opt/node-ytdwnld/config.yaml:/app/userData/config.yaml:ro

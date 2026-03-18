@@ -9,6 +9,7 @@ on:
 env:
   APP_NAME: node-ytdwnld
   IMAGE_NAME: node-ytdwnld
+  COMPOSE_FILE: compose.prod.yaml
 
 jobs:
   build-and-deploy:
@@ -38,14 +39,14 @@ jobs:
           source: "${{ env.IMAGE_NAME }}.tar.gz"
           target: "~/docker/images/"
 
-      - name: Copy compose.yaml to ${{ secrets.SSH_HOST }}
+      - name: Copy ${{ env.COMPOSE_FILE }} to ${{ secrets.SSH_HOST }}
         uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.SSH_HOST }}
           port: ${{ secrets.SSH_PORT }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "compose.yaml"
+          source: "${{ env.COMPOSE_FILE }}"
           target: "/opt/${{ env.APP_NAME }}"
 
       - name: Deploy on ${{ secrets.SSH_HOST }}
@@ -60,6 +61,8 @@ jobs:
             cd /opt/${{ env.APP_NAME }}
 
             docker load < ~/docker/images/${{ env.IMAGE_NAME }}.tar.gz
-            docker compose down || true
-            docker compose up -d --remove-orphans
+
+            docker compose -f ${{ env.COMPOSE_FILE }} down || true
+            docker compose -f ${{ env.COMPOSE_FILE }} up -d --remove-orphans
+            
             docker image prune -f
