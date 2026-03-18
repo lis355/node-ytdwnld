@@ -11,6 +11,9 @@ import undici from "undici";
 import ApplicationComponent from "../app/ApplicationComponent.js";
 import dayjs from "../../utils/dayjs.js";
 
+// disable warnings
+youtubei.Log.setLevel(youtubei.Log.Level.ERROR);
+
 // https://github.com/LuanRT/BgUtils/blob/main/examples/node/innertube-challenge-fetcher-example.ts
 
 // use for fetch overriding
@@ -214,9 +217,9 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			referrer: "https://www.youtube.com/",
 			userAgent,
 			virtualConsole,
-			resources: new jsdom.ResourceLoader({
+			resources: {
 				userAgent
-			})
+			}
 		});
 
 		Object.assign(globalThis, {

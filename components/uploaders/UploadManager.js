@@ -160,7 +160,7 @@ export default class YouTubeVideoInfoProvider extends ApplicationComponent {
 	}
 
 	async destroyUploader() {
-		await this.uploader.destroy();
+		if (this.uploader) await this.uploader.destroy();
 
 		this.uploader = null;
 	}
