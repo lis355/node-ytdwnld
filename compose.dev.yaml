@@ -1,6 +1,0 @@
-services:
-  app:
-    build: .
-    volumes:
-      - ./userData/config.yaml:/app/userData/config.yaml:ro
-

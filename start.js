@@ -7,9 +7,7 @@ import chalk from "chalk";
 import fs from "fs-extra";
 import YAML from "yaml";
 
-import * as platform from "./utils/platform.js";
 import Application from "./components/app/Application.js";
-import filenamify from "./utils/filenamify.js";
 import openDirectoryInExplorer from "./utils/openDirectoryInExplorer.js";
 
 import info from "./package.json" with { type: "json" };

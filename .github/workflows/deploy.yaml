@@ -8,8 +8,8 @@ on:
 
 env:
   APP_NAME: node-ytdwnld
-  IMAGE_NAME: node-ytdwnld
-  COMPOSE_FILE: compose.prod.yaml
+  IMAGE_NAME: image
+  COMPOSE_FILE: compose.yaml
 
 jobs:
   build-and-deploy:
@@ -37,7 +37,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "${{ env.IMAGE_NAME }}.tar.gz"
-          target: "~/docker/images/"
+          target: "~/docker/${{ env.APP_NAME }}"
 
       - name: Copy ${{ env.COMPOSE_FILE }} to ${{ secrets.SSH_HOST }}
         uses: appleboy/scp-action@v1.0.0
@@ -47,7 +47,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "${{ env.COMPOSE_FILE }}"
-          target: "/opt/${{ env.APP_NAME }}"
+          target: "~/docker/${{ env.APP_NAME }}"
 
       - name: Deploy on ${{ secrets.SSH_HOST }}
         uses: appleboy/ssh-action@v1.2.5
@@ -58,11 +58,12 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
-            cd /opt/${{ env.APP_NAME }}
-
-            docker load < ~/docker/images/${{ env.IMAGE_NAME }}.tar.gz
-
-            docker compose -f ${{ env.COMPOSE_FILE }} down || true
-            docker compose -f ${{ env.COMPOSE_FILE }} up -d --remove-orphans
             
+            cd ~/docker/${{ env.APP_NAME }}
+
+            docker load < ~/docker/${{ env.APP_NAME }}/${{ env.IMAGE_NAME }}.tar.gz
+
+            docker compose down || true
+            docker compose up -d --remove-orphans
+
             docker image prune -f
