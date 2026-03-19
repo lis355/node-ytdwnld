@@ -8,7 +8,7 @@ on:
 
 env:
   APP_NAME: node-ytdwnld
-  IMAGE_NAME: image
+  IMAGE_NAME: node-ytdwnld
   COMPOSE_FILE: compose.yaml
 
 jobs:
