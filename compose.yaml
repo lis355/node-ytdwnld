@@ -1,6 +1,6 @@
 services:
   app:
-    image: node-ytdwnld
+    image: lis355/node-ytdwnld:latest
     restart: unless-stopped
     volumes:
       - /opt/node-ytdwnld/config.yaml:/app/userData/config.yaml:ro
