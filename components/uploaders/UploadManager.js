@@ -27,7 +27,7 @@ class FileSystemUploader extends Uploader {
 	constructor(application, baseDirectory) {
 		super(application);
 
-		if (!path.isAbsolute(localPath)) path.join(process.cwd(), baseDirectory);
+		if (!path.isAbsolute(baseDirectory)) path.join(process.cwd(), baseDirectory);
 
 		this.baseDirectory = baseDirectory;
 	}
@@ -119,11 +119,15 @@ class TelegramBotUploader extends Uploader {
 	async initialize() {
 		if (!this.application.telegramBot.created) await this.application.telegramBot.createBot();
 
-		await this.application.telegramBot.launchBot();
+		// TODO DIRTY HACK https://github.com/lis355/node-ytdwnld/issues/12
+		// Нормально закодить uploader telegram
+		// await this.application.telegramBot.launchBot();
 	}
 
 	async destroy() {
-		await this.application.telegramBot.stopBot();
+		// TODO DIRTY HACK https://github.com/lis355/node-ytdwnld/issues/12
+		// Нормально закодить uploader telegram
+		// await this.application.telegramBot.stopBot();
 	}
 
 	getAbsolutePath(localPath) {
@@ -133,7 +137,9 @@ class TelegramBotUploader extends Uploader {
 	}
 
 	async uploadFileStream(localFilePath, readableStream, { videoInfo, mediaStreamInfo, chapters, isOnlyAudio }) {
-		await this.application.telegramBot.sendMedia(videoInfo, mediaStreamInfo, chapters, isOnlyAudio, readableStream);
+		// TODO DIRTY HACK https://github.com/lis355/node-ytdwnld/issues/12
+		// Нормально закодить uploader telegram
+		// ...
 	}
 }
 

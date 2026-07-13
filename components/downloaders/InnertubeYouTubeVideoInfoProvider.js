@@ -1,8 +1,6 @@
 import path from "node:path";
 import stream from "node:stream";
 
-// import fs from "fs-extra";
-import { socksDispatcher } from "fetch-socks";
 import * as bgutils from "bgutils-js";
 import * as jsdom from "jsdom";
 import * as youtubei from "youtubei.js";
@@ -159,19 +157,7 @@ export default class InnertubeYouTubeVideoInfoProvider extends ApplicationCompon
 			}
 
 			case "socks5:": {
-				const settings = {
-					type: 5,
-					host: proxyUrl.hostname,
-					port: Number(proxyUrl.port)
-				};
-
-				if (proxyUrl.username &&
-					proxyUrl.password) {
-					settings.userId = proxyUrl.username;
-					settings.password = proxyUrl.password;
-				}
-
-				proxyAgent = socksDispatcher(settings);
+				proxyAgent = new undici.Socks5ProxyAgent(this.application.config.proxy);
 
 				break;
 			}

@@ -85,6 +85,14 @@ export default class InnertubeYouTubeVideoDownloader extends ApplicationComponen
 	}
 
 	async processYouTubeVideo(videoInfo, options) {
+		if (this.application.config.output === "telegram") {
+			// TODO DIRTY HACK https://github.com/lis355/node-ytdwnld/issues/12
+			// Нормально закодить uploader telegram
+			await this.application.telegramBot.processVideoId(this.application.config.telegramBotUserIds[0], videoInfo.id);
+
+			return;
+		}
+
 		const isBook = Boolean(options.book);
 		const isPlaylist = Boolean(videoInfo.playlistInfo);
 		const isOnlyAudio = Boolean(options.audio);
